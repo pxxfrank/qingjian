@@ -1,0 +1,11 @@
+node_modules/
+dist/
+certs/
+
+# 本地草稿 / 内部笔记 / 临时诊断产物（不发布）
+.workbuddy/
+pkg-err.txt
+pkg-out.txt
+pkgcheck.txt
+procs.txt
+tests/probe2.js
