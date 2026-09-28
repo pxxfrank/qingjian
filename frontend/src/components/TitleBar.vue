@@ -48,16 +48,23 @@ const emit = defineEmits([
   flex: 1 1 96px;
   min-width: 96px;
   max-width: 100%;
+  height: 32px;
+  box-sizing: border-box;
   border: none;
   outline: none;
-  background: transparent;
+  padding: 0 10px;
+  /* 加深的输入底色 + 圆角：标题一眼可辨，标题栏其余留白即「可拖动区」 */
+  border-radius: var(--shape-s);
+  background: color-mix(in srgb, var(--paper) 80%, var(--md-on-surface));
   color: var(--md-on-surface);
   font-family: "Microsoft YaHei", "Microsoft YaHei UI", "Segoe UI", sans-serif;
   font-size: 14.5px;
   font-weight: 700;
   letter-spacing: 0;
+  transition: background var(--dur-short) var(--md-ease-standard);
 }
 .title-input::placeholder { color: var(--md-on-surface-variant); font-weight: 400; }
+.title-input:focus { background: color-mix(in srgb, var(--paper) 72%, var(--md-on-surface)); }
 .win-controls { display: flex; gap: 2px; flex: 0 0 auto; }
 /* MD3 Standard icon button：圆形 + state layer。
    按钮始终保持正方形（宽高同步变化）——只缩宽度会变成椭圆，图标会被挤扁显示不全。 */

@@ -125,6 +125,7 @@ const BLOCK_PATTERNS = [
   },
   {
     re: /^[-*+]\s+(.*)$/,
+    kind: 'list',
     make: (m) => {
       const ul = document.createElement('ul')
       ul.appendChild(makeLi(m[1]))
@@ -133,6 +134,7 @@ const BLOCK_PATTERNS = [
   },
   {
     re: /^(\d+)\.\s+(.*)$/,
+    kind: 'list',
     make: (m) => {
       const ol = document.createElement('ol')
       ol.start = parseInt(m[1], 10)
@@ -142,6 +144,7 @@ const BLOCK_PATTERNS = [
   },
   {
     re: /^\[([ xX]?)\]\s+(.*)$/,
+    kind: 'task',
     make: (m) => {
       const ul = document.createElement('ul')
       ul.appendChild(makeLi(m[2], 'checkbox' + ((m[1] || '').toLowerCase() === 'x' ? ' checked' : '')))
@@ -165,6 +168,18 @@ function convertBlock(block) {
   for (const p of BLOCK_PATTERNS) {
     const m = p.re.exec(text)
     if (m && m.index === 0) {
+      // 已经在列表项里：绝不再新建列表，否则会嵌套出 <ol><ol>…（越套越深，编号乱掉）。
+      // 列表标记只抹掉标记、沿用当前项；其余块级语法在列表项内同样不处理。
+      if (block.tagName === 'LI') {
+        if (!p.kind) return false
+        block.textContent = m[2] || ''
+        if (!block.textContent) block.innerHTML = '<br>'
+        if (p.kind === 'task') {
+          block.className = 'checkbox' + ((m[1] || '').toLowerCase() === 'x' ? ' checked' : '')
+        }
+        placeCaretAtEnd(block)
+        return true
+      }
       const el = p.make(m)
       block.replaceWith(el)
       placeCaretAtEnd(el)
@@ -179,9 +194,26 @@ function exitBlock(block) {
   const parent = block.parentElement
   const p = document.createElement('p')
   p.innerHTML = '<br>'
-  block.after(p)
-  block.remove()
-  if (parent && !parent.childElementCount) parent.remove()
+  if (parent && (parent.tagName === 'OL' || parent.tagName === 'UL')) {
+    // 空列表项回车/退格 → 变成段落：段落必须落在列表【外面】。
+    // 若塞进 <ol> 里，之后在这个段落上输入列表标记就会嵌出 <ol><ol>…（编号乱了）。
+    const rest = []
+    for (let n = block.nextElementSibling; n; n = n.nextElementSibling) rest.push(n)
+    const before = [...parent.children].indexOf(block)
+    block.remove()
+    if (rest.length) {
+      const tail = parent.cloneNode(false)
+      if (parent.tagName === 'OL') tail.start = (parseInt(parent.getAttribute('start'), 10) || 1) + before + 1
+      rest.forEach((n) => tail.appendChild(n))
+      parent.after(tail)
+    }
+    parent.after(p)
+    if (!parent.childElementCount) parent.remove()
+  } else {
+    block.after(p)
+    block.remove()
+    if (parent && !parent.childElementCount) parent.remove()
+  }
   placeCaretAtEnd(p)
 }
 
@@ -223,6 +255,39 @@ function handleBackspace(e) {
   }
 }
 
+// 光标是否在某个块的最前面（用「块内剩余文本长度 == 全文字长度」判断，比边界点比较可靠）
+function caretAtStartOf(el) {
+  const sel = getSelection()
+  if (!sel.rangeCount) return false
+  const range = sel.getRangeAt(0)
+  if (!range.collapsed) return false
+  const rest = document.createRange()
+  rest.selectNodeContents(el)
+  rest.setStart(range.endContainer, range.endOffset)
+  return rest.toString().length >= (el.textContent || '').length
+}
+
+// 光标是否正处在列表「最前面」（列表的第一项、且光标在本项文字起点）；是则返回该列表
+function listAtCaretFront() {
+  const block = currentBlock()
+  if (!block || block.tagName !== 'LI') return null
+  const list = block.parentElement
+  if (!list || (list.tagName !== 'OL' && list.tagName !== 'UL')) return null
+  if (list.firstElementChild !== block) return null
+  return caretAtStartOf(block) ? list : null
+}
+
+// 在列表最前面按空格：在列表上方插入一个空段落，列表整体下移
+function insertLineAboveList() {
+  const list = listAtCaretFront()
+  if (!list) return false
+  const p = document.createElement('p')
+  p.innerHTML = '<br>'
+  list.before(p)
+  placeCaretAtEnd(p) // 光标落到新空行，可直接往上打字
+  return true
+}
+
 // ---------- 规范化 ----------
 export function normalize() {
   if (!editor) return
@@ -248,6 +313,9 @@ export function bindEditorEvents() {
       const block = currentBlock()
       if (block) handleEnter(block)
       scheduleSave()
+    } else if (e.key === ' ' || e.key === 'Spacebar') {
+      // 列表最前面按空格 = 在列表上方插入空行（而不是往列表项里塞前导空格）
+      if (insertLineAboveList()) { e.preventDefault(); scheduleSave() }
     } else if (e.key === 'Backspace') {
       handleBackspace(e)
     } else if (e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 'X')) {

@@ -1,21 +1,50 @@
 <template>
   <div class="list-app">
     <header class="head drag">
-      <div class="brand">
-        <span class="brand-mark" :class="{ trash: view === 'trash' }">{{ view === 'trash' ? '♻' : '❈' }}</span>
-        {{ view === 'trash' ? '回收站' : '轻笺' }}
+      <div class="brand-wrap no-drag">
+        <button
+          class="brand"
+          id="brandBtn"
+          :class="{ on: menuOpen }"
+          :aria-expanded="menuOpen ? 'true' : 'false'"
+          title="菜单：回收站 / 主题 / Markdown 语法"
+          @click="menuOpen = !menuOpen"
+        >
+          <span class="brand-mark" :class="{ trash: view === 'trash' }">{{ view === 'trash' ? '♻' : '❈' }}</span>
+          <span>{{ view === 'trash' ? '回收站' : '轻笺' }}</span>
+          <Icon name="chevron-down" class="brand-caret" />
+        </button>
+
+        <template v-if="menuOpen">
+          <div class="menu-scrim" @click="menuOpen = false"></div>
+          <div class="menu" role="menu">
+            <button class="menu-item" @click="menuTrash">
+              <Icon :name="view === 'trash' ? 'list' : 'history'" />
+              <span>{{ view === 'trash' ? '返回便笺列表' : '回收站' }}</span>
+              <span v-if="view !== 'trash' && trashCount" class="menu-badge">{{ trashCount }}</span>
+              <Icon v-if="view === 'trash'" name="check" class="menu-tail" />
+            </button>
+            <div class="menu-sep"></div>
+            <div class="menu-label">主题</div>
+            <button
+              v-for="t in themeOptions"
+              :key="t.value"
+              class="menu-item"
+              :data-pref="t.value"
+              @click="pickTheme(t.value)"
+            >
+              <Icon :name="t.icon" /><span>{{ t.label }}</span>
+              <Icon v-if="themePref === t.value" name="check" class="menu-tail" />
+            </button>
+            <div class="menu-sep"></div>
+            <button class="menu-item" @click="openSyntax">
+              <Icon name="help" /><span>Markdown 语法说明</span>
+            </button>
+          </div>
+        </template>
       </div>
       <div class="actions no-drag">
-        <button
-          class="hbtn md-state"
-          :class="{ on: view === 'trash' }"
-          :title="view === 'trash' ? '返回便笺列表' : (trashCount ? `回收站（${trashCount}）` : '回收站')"
-          @click="toggleView"
-        >
-          <Icon :name="view === 'trash' ? 'list' : 'history'" />
-        </button>
         <button class="hbtn md-state" id="dockBtn" title="收起到贴边" @click="hideToDock"><Icon name="collapse" /></button>
-        <button class="hbtn md-state" id="themeBtn" :title="'主题：' + themePref" @click="cycleTheme"><Icon :name="themeIcon" /></button>
         <button v-if="view === 'notes'" class="hbtn md-state primary" id="newBtn" title="新建便笺" @click="createNote"><Icon name="plus" /></button>
         <button class="hbtn md-state" id="minBtn" title="最小化" @click="minimizeWin"><Icon name="minus" /></button>
         <button class="hbtn md-state close" id="closeBtn" title="关闭到托盘" @click="closeWin"><Icon name="x" /></button>
@@ -75,6 +104,26 @@
         : '拖动顶部可移动窗口 · 删除的便笺可在回收站找回' }}
     </footer>
 
+    <!-- Markdown 语法说明 -->
+    <div v-if="syntaxOpen" class="modal-scrim no-drag" @click.self="syntaxOpen = false">
+      <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <span class="modal-title">Markdown 语法说明</span>
+          <button class="hbtn md-state close" title="关闭" @click="syntaxOpen = false"><Icon name="x" /></button>
+        </div>
+        <div class="modal-body">
+          <div v-for="g in syntaxGroups" :key="g.name" class="syn-group">
+            <div class="syn-group-name">{{ g.name }}</div>
+            <div v-for="row in g.rows" :key="row.code" class="syn-row">
+              <code class="syn-code">{{ row.code }}</code>
+              <span class="syn-desc">{{ row.desc }}</span>
+            </div>
+          </div>
+          <p class="syn-tip">在便笺里直接输入左侧符号即可自动转换；图片可直接粘贴或拖入。</p>
+        </div>
+      </div>
+    </div>
+
     <div
       v-for="d in dirs"
       :key="d"
@@ -97,6 +146,8 @@ const trash = ref([])
 const query = ref('')
 const themePref = ref('system')
 const view = ref('notes')
+const menuOpen = ref(false)
+const syntaxOpen = ref(false)
 const emptyConfirm = ref(false)
 const purgeConfirm = ref('')
 
@@ -117,8 +168,46 @@ const filteredTrash = computed(() => {
   return trash.value.filter((t) => (t.title + ' ' + t.preview).toLowerCase().includes(q))
 })
 
-const themeIcons = { system: 'contrast', white: 'square', light: 'sun', dark: 'moon' }
-const themeIcon = computed(() => themeIcons[themePref.value] || 'contrast')
+const themeOptions = [
+  { value: 'system', label: '跟随系统', icon: 'contrast' },
+  { value: 'white', label: '白底', icon: 'square' },
+  { value: 'light', label: '浅色', icon: 'sun' },
+  { value: 'dark', label: '深色', icon: 'moon' }
+]
+
+// Markdown 语法说明（与 engine.js 支持的能力保持一致）
+const syntaxGroups = [
+  {
+    name: '块级',
+    rows: [
+      { code: '# 标题', desc: '一~六级标题（# 到 ######）' },
+      { code: '- 项目', desc: '无序列表（- / * / +）' },
+      { code: '1. 项目', desc: '有序列表' },
+      { code: '[] 待办', desc: '复选框（[x] 表示已完成）' },
+      { code: '> 引用', desc: '引用块' }
+    ]
+  },
+  {
+    name: '行内',
+    rows: [
+      { code: '**粗体**', desc: '加粗' },
+      { code: '*斜体*', desc: '斜体（也可写 _斜体_）' },
+      { code: '__下划线__', desc: '下划线' },
+      { code: '~~删除线~~', desc: '删除线' },
+      { code: '`代码`', desc: '行内代码' }
+    ]
+  },
+  {
+    name: '操作 / 快捷键',
+    rows: [
+      { code: 'Ctrl + F', desc: '在便笺内查找' },
+      { code: 'Ctrl + S', desc: '立即保存' },
+      { code: 'Ctrl + Shift + S', desc: '切换删除线' },
+      { code: '粘贴 / 拖入图片', desc: '插入图片（存为附件）' },
+      { code: '列表最前面按空格', desc: '在列表上方插入空行' }
+    ]
+  }
+]
 
 function swatchOf(c) {
   return (noteColors[c] || noteColors.yellow).swatch
@@ -138,11 +227,21 @@ async function toggleView() {
   else await refresh()
 }
 
-function cycleTheme() {
-  const order = ['system', 'white', 'light', 'dark']
-  themePref.value = order[(order.indexOf(themePref.value) + 1) % order.length]
-  applyTheme(themePref.value)
-  api.setSetting({ theme: themePref.value })
+function pickTheme(t) {
+  themePref.value = t
+  applyTheme(t)
+  api.setSetting({ theme: t })
+  menuOpen.value = false
+}
+
+async function menuTrash() {
+  menuOpen.value = false
+  await toggleView()
+}
+
+function openSyntax() {
+  menuOpen.value = false
+  syntaxOpen.value = true
 }
 
 async function createNote() {
@@ -295,16 +394,27 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--md-outline-variant);
   /* 注意：不要给拖拽区加 backdrop-filter，会破坏 -webkit-app-region: drag 命中 */
 }
+.brand-wrap { position: relative; flex: 0 1 auto; min-width: 0; }
+/* 品牌区 = 下拉菜单触发器（回收站 / 主题 / Markdown 语法说明都收进这里） */
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 4px 8px 4px 4px;
+  border: none;
+  background: transparent;
+  border-radius: var(--shape-full);
+  cursor: pointer;
   font-size: 20px; /* title-large 的紧凑档 */
   font-weight: 700;
   font-family: "Microsoft YaHei", "Microsoft YaHei UI", "Segoe UI", sans-serif;
   letter-spacing: .5px;
   color: var(--md-on-surface);
+  transition: background var(--dur-short) var(--md-ease-standard);
 }
+.brand:hover,
+.brand.on { background: color-mix(in srgb, var(--md-on-surface) 8%, transparent); }
+.brand-caret { width: 16px; height: 16px; color: var(--md-on-surface-variant); }
 /* MD3 Avatar / 图标容器：32dp 圆形 primary-container */
 .brand-mark {
   display: flex;
@@ -321,6 +431,98 @@ onUnmounted(() => {
   background: var(--md-error-container);
   color: var(--md-on-error-container);
 }
+
+/* ---------- 品牌下拉菜单 ---------- */
+.menu-scrim { position: fixed; inset: 0; z-index: 40; }
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 41;
+  min-width: 210px;
+  padding: 6px;
+  background: var(--md-surface-container-high);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-m);
+  box-shadow: var(--elev-2);
+  animation: menu-in var(--dur-short) var(--md-ease-emphasized);
+}
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: var(--shape-s);
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-short) var(--md-ease-standard);
+}
+.menu-item:hover { background: color-mix(in srgb, var(--md-primary) 12%, transparent); }
+.menu-item .icon { color: var(--md-on-surface-variant); }
+.menu-item .menu-tail { margin-left: auto; color: var(--md-primary); }
+.menu-badge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--shape-full);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.menu-label { padding: 6px 10px 2px; font-size: 11px; color: var(--md-on-surface-variant); }
+.menu-sep { height: 1px; margin: 4px 6px; background: var(--md-outline-variant); }
+
+/* ---------- Markdown 语法说明弹层 ---------- */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, .38);
+}
+.modal {
+  width: 100%;
+  max-width: 380px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--md-surface-container-high);
+  border-radius: var(--shape-l);
+  box-shadow: var(--elev-3);
+  overflow: hidden;
+}
+.modal-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 10px 18px; }
+.modal-title { flex: 1; font-size: 15px; font-weight: 700; color: var(--md-on-surface); }
+.modal-body { overflow: auto; padding: 0 18px 18px; }
+.syn-group { margin-top: 12px; }
+.syn-group-name { margin-bottom: 6px; font-size: 12px; color: var(--md-on-surface-variant); }
+.syn-row { display: flex; align-items: baseline; gap: 12px; padding: 4px 0; }
+.syn-code {
+  flex: 0 0 122px;
+  padding: 2px 8px;
+  border-radius: var(--shape-xs);
+  background: var(--md-surface-container-highest);
+  font-family: "Roboto Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--md-on-surface);
+}
+.syn-desc { font-size: 12.5px; color: var(--md-on-surface-variant); }
+.syn-tip { margin: 16px 0 0; font-size: 12px; line-height: 1.6; color: var(--md-on-surface-variant); }
 .actions { display: flex; gap: 2px; }
 /* MD3 Standard icon button：40dp 圆形 + state layer */
 .hbtn {
@@ -357,7 +559,7 @@ onUnmounted(() => {
 .hbtn.primary:hover { color: var(--md-on-primary-container); box-shadow: var(--elev-1); }
 .close:hover { color: var(--md-error); }
 
-/* MD3 Search bar：56dp 全圆角胶囊 + surface-container-high */
+/* 搜索框：圆角与便笺卡片保持一致（--shape-m）+ surface-container-high */
 .search {
   position: relative;
   flex-shrink: 0;
@@ -377,7 +579,7 @@ onUnmounted(() => {
   width: 100%; box-sizing: border-box;
   height: 52px;
   border: 1px solid var(--md-outline-variant);
-  border-radius: var(--shape-xl);
+  border-radius: var(--shape-m);
   background: var(--md-surface-container-high);
   color: var(--md-on-surface);
   padding: 0 44px;

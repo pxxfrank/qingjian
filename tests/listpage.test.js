@@ -41,14 +41,39 @@ module.exports = {
     const afterDel = store.listNotes().length
     ok('删除便笺移除存储', afterDel === after - 1, `${after} -> ${afterDel}`)
 
-    console.log('\n[listpage] 主题 / 时间')
-    const icons = await evalIn(win, `(async () => {
-      const btn = document.getElementById('themeBtn')
-      const seen = []
-      for (let i = 0; i < 4; i++) { btn.click(); await new Promise(r => setTimeout(r, 80)); seen.push(btn.getAttribute('title')) }
-      return seen
+    console.log('\n[listpage] 品牌菜单（回收站 / 主题 / Markdown 语法）')
+    const items = await evalIn(win, `(async () => {
+      document.getElementById('brandBtn').click()
+      await new Promise(r => setTimeout(r, 80))
+      return [...document.querySelectorAll('.menu .menu-item')].map((b) => b.textContent.trim())
     })()`)
-    ok('主题按钮四态循环（title 依次变化）', new Set(icons).size === 4, JSON.stringify(icons))
+    ok('品牌下拉含回收站 / 主题 / 语法说明',
+      items.some((t) => t.includes('回收站')) && items.some((t) => t.includes('跟随系统')) && items.some((t) => t.includes('Markdown')),
+      JSON.stringify(items))
+
+    const themes = await evalIn(win, `(async () => {
+      const out = []
+      for (const t of ['white', 'light', 'dark', 'system']) {
+        if (!document.querySelector('.menu')) document.getElementById('brandBtn').click()
+        await new Promise(r => setTimeout(r, 80))
+        document.querySelector('.menu-item[data-pref="' + t + '"]').click()
+        await new Promise(r => setTimeout(r, 120))
+        out.push({ pref: t, theme: document.body.dataset.theme })
+      }
+      return out
+    })()`)
+    ok('主题菜单切换生效（body data-theme）',
+      themes[0].theme === 'white' && themes[1].theme === 'light' && themes[2].theme === 'dark',
+      JSON.stringify(themes))
+
+    const syntax = await evalIn(win, `(async () => {
+      if (!document.querySelector('.menu')) document.getElementById('brandBtn').click()
+      await new Promise(r => setTimeout(r, 80))
+      ;[...document.querySelectorAll('.menu .menu-item')].find((b) => b.textContent.includes('Markdown')).click()
+      await new Promise(r => setTimeout(r, 150))
+      return { open: !!document.querySelector('.modal'), rows: document.querySelectorAll('.syn-row').length }
+    })()`)
+    ok('Markdown 语法说明弹层可打开', syntax.open && syntax.rows >= 10, JSON.stringify(syntax))
 
     const timeText = await evalIn(win, `document.querySelector('.note-card .time') ? document.querySelector('.note-card .time').textContent : ''`)
     ok('渲染时间文本', timeText.length > 0, timeText)

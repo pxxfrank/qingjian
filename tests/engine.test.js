@@ -88,6 +88,43 @@ module.exports = {
     })()`)
     ok('复选框点击切换勾选', ck.includes('checked'), ck)
 
+    // 列表最前面按空格 → 在列表上方插入空段落（而不是往列表项里塞前导空格）
+    const aboveSpace = await evalIn(win, `(() => {
+      const ed = document.getElementById('editor')
+      ed.innerHTML = '<ol><li>a</li></ol>'
+      const li = ed.querySelector('li')
+      const r = document.createRange(); r.setStart(li.firstChild, 0); r.collapse(true)
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r)
+      ed.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }))
+      return ed.innerHTML
+    })()`)
+    ok('列表最前面按空格 → 列表上方插入空段落', aboveSpace === '<p><br></p><ol><li>a</li></ol>', aboveSpace)
+
+    // 列表项里再输入列表标记：不新建嵌套列表，只抹掉标记、沿用当前项
+    const noNest = await evalIn(win, `(() => {
+      const ed = document.getElementById('editor')
+      ed.innerHTML = '<ol><li>a</li><li><br></li></ol>'
+      const li = ed.querySelectorAll('li')[1]
+      li.textContent = '2. b'
+      const r = document.createRange(); r.selectNodeContents(li); r.collapse(false)
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r)
+      ed.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      return ed.innerHTML
+    })()`)
+    ok('列表项内输入列表标记不嵌套（只去标记）', noNest === '<ol><li>a</li><li>b</li></ol>', noNest)
+
+    // 空列表项回车退出：段落必须落在列表【外面】，否则后续会嵌出 <ol><ol>
+    const exitOutside = await evalIn(win, `(() => {
+      const ed = document.getElementById('editor')
+      ed.innerHTML = '<ol><li>a</li><li><br></li></ol>'
+      const li = ed.querySelectorAll('li')[1]
+      const r = document.createRange(); r.selectNodeContents(li); r.collapse(false)
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r)
+      ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      return ed.innerHTML
+    })()`)
+    ok('空列表项回车：段落落在列表外', exitOutside === '<ol><li>a</li></ol><p><br></p>', exitOutside)
+
     // 工具栏已精简为 B/I/U/S，块级与插入能力改由 markdown 输入 / 粘贴驱动
     console.log('\n[engine] 块级语法（markdown 输入）')
     const h1 = await typeText(win, '# x')

@@ -73,7 +73,13 @@ const ICONS = {
     '<path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path>' +
     '<path d="M2 12h2"></path><path d="M20 12h2"></path>' +
     '<path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>',
-  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"></path>'
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"></path>',
+  // 品牌下拉菜单 / 语法说明
+  help:
+    '<circle cx="12" cy="12" r="9"></circle>' +
+    '<path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.7.3-1.1.9-1.1 1.6v.4"></path>' +
+    '<path d="M12 17h.01"></path>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7"></path>'
 }
 
 const props = defineProps({ name: { type: String, required: true } })
