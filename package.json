@@ -69,7 +69,7 @@
       "installerLanguages": [
         "zh_CN"
       ],
-      "artifactName": "轻笺-Setup-${version}.exe"
+      "artifactName": "Qingjian-Setup-${version}.exe"
     }
   }
 }
