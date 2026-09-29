@@ -62,9 +62,10 @@ function scheduleSave() {
 }
 
 function payload() {
-  const plain = editorEl.value.innerText.replace(/\s+/g, ' ').trim()
+  // 去掉输入法合成占位用的零宽字符（见 engine.js），不落盘
+  const plain = editorEl.value.innerText.replace(/\u200B/g, '').replace(/\s+/g, ' ').trim()
   return {
-    html: editorEl.value.innerHTML,
+    html: editorEl.value.innerHTML.replace(/\u200B/g, ''),
     title: title.value.trim() || plain.slice(0, 30),
     preview: plain.slice(0, 100)
   }

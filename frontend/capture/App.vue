@@ -52,6 +52,7 @@ async function submit(open) {
 }
 
 function onKey(e) {
+  if (e.isComposing || e.keyCode === 229) return // 输入法合成中（含回车选词）交给输入法
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     submit(e.ctrlKey || e.metaKey)

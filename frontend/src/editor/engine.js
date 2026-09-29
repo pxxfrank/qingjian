@@ -40,6 +40,39 @@ function placeCaretAtEnd(el) {
   sel.addRange(range)
 }
 
+// ---------- 输入法合成占位 ----------
+// 空块（仅一个 <br> 占位）里开始拼音合成时，Chromium 会「去掉 <br>、新建文本节点」，
+// 这个结构变动会打断合成，导致首个字母被直接上屏成英文（如 shuohua → s + huohua）。
+// 合成开始前把占位换成零宽字符（ZWSP），给合成一个现成的文本节点即可避免；合成结束后清除。
+const EMPTY_SENTINEL = '\u200B'
+
+function ensureCompositionHost() {
+  if (!editor) return
+  const sel = getSelection()
+  if (!sel.rangeCount) return
+  let node = sel.getRangeAt(0).startContainer
+  node = node.nodeType === 1 ? node : node.parentElement
+  while (node && node !== editor && !BLOCK_TAGS.has(node.tagName)) node = node.parentElement
+  if (!node || node === editor || node.textContent.trim()) return
+  node.textContent = EMPTY_SENTINEL
+  placeCaretAtEnd(node)
+}
+
+function stripSentinels() {
+  if (!editor) return
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
+  let n
+  while ((n = walker.nextNode())) {
+    if (n.nodeValue && n.nodeValue.indexOf(EMPTY_SENTINEL) !== -1) {
+      n.nodeValue = n.nodeValue.split(EMPTY_SENTINEL).join('')
+    }
+  }
+  // 占位被清空后补回 <br>，维持空块的静态表示
+  editor.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre').forEach((el) => {
+    if (!el.textContent && !el.querySelector('br,img')) el.innerHTML = '<br>'
+  })
+}
+
 function caretAtEndOf(el) {
   const sel = getSelection()
   if (!sel.rangeCount) return false
@@ -304,6 +337,7 @@ export function normalize() {
       p.appendChild(n)
     }
   })
+  stripSentinels()
 }
 
 // ---------- 事件绑定（keydown / input / click） ----------
@@ -323,7 +357,7 @@ function processInput() {
 export function bindEditorEvents() {
   // 输入法合成期间不做任何 DOM 处理：一旦挪动/替换正在组合的文本节点，合成会被打断，
   // 表现为首字母被吞成英文（如输入 shuohua → 只留下 s + huohua）。
-  editor.addEventListener('compositionstart', () => { composing = true })
+  editor.addEventListener('compositionstart', () => { composing = true; ensureCompositionHost() })
   editor.addEventListener('compositionend', () => { composing = false; processInput() })
 
   editor.addEventListener('keydown', (e) => {
