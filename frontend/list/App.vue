@@ -1,16 +1,6 @@
 <template>
   <div class="list-app">
     <header class="head drag">
-      <button
-        v-if="view !== 'notes'"
-        class="back-btn md-state no-drag"
-        id="backBtn"
-        title="返回便笺列表"
-        @click="toNotes"
-      >
-        <Icon name="arrow-left" />
-        <span>返回便笺列表</span>
-      </button>
       <div class="brand-wrap no-drag">
         <button
           class="brand"
@@ -30,13 +20,11 @@
           <div class="menu" role="menu">
             <button class="menu-item" @click="showToday">
               <Icon name="sun" /><span>今日看板</span>
-              <Icon v-if="view === 'today'" name="check" class="menu-tail" />
             </button>
             <button class="menu-item" @click="menuBack">
               <Icon :name="view === 'notes' ? 'history' : 'list'" />
               <span>{{ view === 'notes' ? '回收站' : '返回便笺列表' }}</span>
               <span v-if="view === 'notes' && trashCount" class="menu-badge">{{ trashCount }}</span>
-              <Icon v-if="view !== 'notes'" name="check" class="menu-tail" />
             </button>
             <div class="menu-sep"></div>
             <div class="menu-label">主题</div>
@@ -555,33 +543,13 @@ onUnmounted(() => {
   height: 56px;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
+  justify-content: space-between;
   padding: 0 8px 0 16px;
   background: var(--md-surface-container);
   border-bottom: 1px solid var(--md-outline-variant);
   /* 注意：不要给拖拽区加 backdrop-filter，会破坏 -webkit-app-region: drag 命中 */
 }
 .brand-wrap { position: relative; flex: 0 1 auto; min-width: 0; }
-/* 返回便笺列表：回收站 / 今日看板视图下显示在标题栏最左 */
-.back-btn {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px 0 8px;
-  border: none;
-  border-radius: var(--shape-full);
-  background: transparent;
-  color: var(--md-on-surface);
-  font-size: 13px;
-  font-family: "Microsoft YaHei", "Microsoft YaHei UI", "Segoe UI", sans-serif;
-  cursor: pointer;
-  transition: background var(--dur-short) var(--md-ease-standard);
-}
-.back-btn:hover { background: color-mix(in srgb, var(--md-on-surface) 8%, transparent); }
-.back-btn span { white-space: nowrap; }
 /* 品牌区 = 下拉菜单触发器（回收站 / 主题 / Markdown 语法说明都收进这里） */
 .brand {
   display: flex;
@@ -710,7 +678,7 @@ onUnmounted(() => {
 }
 .syn-desc { font-size: 12.5px; color: var(--md-on-surface-variant); }
 .syn-tip { margin: 16px 0 0; font-size: 12px; line-height: 1.6; color: var(--md-on-surface-variant); }
-.actions { display: flex; gap: 2px; margin-left: auto; }
+.actions { display: flex; gap: 2px; }
 /* MD3 Standard icon button：40dp 圆形 + state layer */
 .hbtn {
   width: 40px; height: 40px;
