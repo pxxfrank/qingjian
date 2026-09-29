@@ -303,6 +303,19 @@ body.capture-page {
   box-shadow: none;
 }
 
+/* ---------- 软件渲染降级（无 GPU / 虚拟机 / 远程桌面） ----------
+   主进程检出纯软件渲染时给 <html> 打 .soft-render：关闭全部动效、去掉窗口内
+   12px 透明留白与投影（配合主进程把列表/便笺窗改为不透明），以降低分层窗口的
+   合成与重绘开销，缓解「打开应用时鼠标/画面短暂卡顿」。 */
+html.soft-render body { padding: 0; }
+html.soft-render #app { box-shadow: none; }
+html.soft-render *,
+html.soft-render *::before,
+html.soft-render *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
 /* 收起到小球不做缩放动画（窗口直接隐藏、小球给涟漪反馈） */
 body.no-transition { transition: none !important; }
 
@@ -320,9 +333,14 @@ body.no-transition { transition: none !important; }
 }
 #editor p { margin: 0 0 12px; }
 #editor h1, #editor h2, #editor h3, #editor h4, #editor h5, #editor h6 {
-  font-weight: 500; /* MD3 标题用 400/500，不用 600 的黑体 */
+  font-weight: 500;
   letter-spacing: 0;
   line-height: 1.3;
+}
+/* H1–H3：黑体加粗，标题层级更醒目（H4–H6 保持常规字重 + 弱化色） */
+#editor h1, #editor h2, #editor h3 {
+  font-weight: 700;
+  font-family: "SimHei", "黑体", "Microsoft YaHei", "Microsoft YaHei UI", "Segoe UI", Roboto, sans-serif;
 }
 #editor h1 { font-size: 22px; margin: 22px 0 12px; }              /* display/headline-small */
 #editor h2 { font-size: 19px; margin: 20px 0 10px; }

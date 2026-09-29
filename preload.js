@@ -1,7 +1,19 @@
 // 预加载脚本：安全桥接渲染进程与主进程
 const { contextBridge, ipcRenderer } = require('electron')
 
+// 无 GPU / 远程桌面下的软件渲染降级：给根元素打标记，CSS 据此关闭动效、去掉透明留白
+const SOFT_RENDER = process.argv.includes('--qj-soft-render')
+if (SOFT_RENDER) {
+  const mark = () => document.documentElement.classList.add('soft-render')
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mark, { once: true })
+  } else {
+    mark()
+  }
+}
+
 contextBridge.exposeInMainWorld('api', {
+  softRender: SOFT_RENDER,
   // 便笺
   listNotes: () => ipcRenderer.invoke('notes:list'),
   readNote: (id) => ipcRenderer.invoke('note:read', id),

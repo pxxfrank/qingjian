@@ -29,6 +29,30 @@ const store = createStore(
   path.join(app.getPath('userData'), 'settings.json')
 )
 
+// ---------- 渲染环境探测 ----------
+// 无 GPU（虚拟机 / 远程桌面）时 Electron 退化为纯软件渲染，透明置顶窗口要由 DWM
+// 按分层窗口合成，开销很大 —— 打开应用时集中创建这些窗口会让光标/画面卡顿一两秒。
+// 检出后自动降级：关动效、列表/便笺窗改不透明，缓解「打开即卡」。
+let softRender = false
+function detectSoftwareRender() {
+  try {
+    const status = app.getGPUFeatureStatus()
+    softRender = !!status && status.gpu_compositing === 'disabled_software'
+  } catch {
+    softRender = false
+  }
+  return softRender
+}
+function rendererArgs() {
+  return softRender ? ['--qj-soft-render'] : []
+}
+// 不透明模式下窗口底色（仅在首帧绘制前可见，用于避免深色主题下的白闪）
+function windowBgColor() {
+  const theme = store.readSettings().theme || 'system'
+  const dark = theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors)
+  return dark ? '#101412' : '#fbfdf9'
+}
+
 // ---------- 单例锁 ----------
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -106,7 +130,8 @@ function createLauncherWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      spellcheck: false
+      spellcheck: false,
+      additionalArguments: rendererArgs()
     }
   })
   launcherWin.loadFile(path.join(__dirname, 'frontend', 'dist', 'launcher', 'index.html'))
@@ -189,7 +214,8 @@ function createCaptureWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      spellcheck: false
+      spellcheck: false,
+      additionalArguments: rendererArgs()
     }
   })
   captureWin.loadFile(path.join(__dirname, 'frontend', 'dist', 'capture', 'index.html'))
@@ -237,15 +263,18 @@ function createListWindow() {
     minWidth: LIST_MIN_W,
     minHeight: 360,
     frame: false,            // 无边框 + 自绘标题栏：彻底去掉系统菜单栏
-    transparent: true,       // 配合 CSS 圆角实现柔和外观
+    transparent: !softRender, // 软件渲染下改不透明，省掉分层窗口合成
+    ...(softRender ? { backgroundColor: windowBgColor() } : {}),
     resizable: true,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      additionalArguments: rendererArgs()
     }
   })
+  listWin.__opaque = softRender
   listWin.loadFile(path.join(__dirname, 'frontend', 'dist', 'list', 'index.html'))
   listWin.once('ready-to-show', () => listWin.show())
   listWin.on('close', (e) => {
@@ -268,7 +297,8 @@ function createNoteWindow(id, bounds) {
     minWidth: NOTE_MIN_W,
     minHeight: 200,
     frame: false,            // 无边框便笺风格
-    transparent: true,       // CSS 圆角
+    transparent: !softRender, // 软件渲染下改不透明，省掉分层窗口合成
+    ...(softRender ? { backgroundColor: windowBgColor() } : {}),
     resizable: true,         // 自绘 resize 手柄实现调整大小
     alwaysOnTop: true,       // 默认悬浮置顶
     skipTaskbar: false,
@@ -277,11 +307,13 @@ function createNoteWindow(id, bounds) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      spellcheck: false
+      spellcheck: false,
+      additionalArguments: rendererArgs()
     }
   })
   win.loadFile(path.join(__dirname, 'frontend', 'dist', 'note', 'index.html'), { query: { id } })
   win.__noteId = id
+  win.__opaque = softRender
   win.once('ready-to-show', () => win.show())
   // 查找：把命中数/当前命中序号回传渲染层
   win.webContents.on('found-in-page', (_e, result) => {
@@ -581,6 +613,12 @@ ipcMain.handle('settings:set', (_e, patch) => {
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send('theme:changed', merged.theme)
     }
+    if (softRender) {
+      const bg = windowBgColor()
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (win.__opaque) win.setBackgroundColor(bg)
+      }
+    }
   }
   if ('launcher' in patch) applyLauncherEdge(merged.launcher)
   return merged
@@ -620,13 +658,25 @@ const initialTheme = store.readSettings().theme || 'system'
 nativeTheme.themeSource = initialTheme === 'dark' ? 'dark' : initialTheme === 'system' ? 'system' : 'light'
 
 app.whenReady().then(() => {
+  detectSoftwareRender()
   store.ensureNotesDir()
   store.pruneTrash() // 清理超过保留期的回收站内容
   handleAttachmentProtocol()
   createListWindow()
-  createLauncherWindow()
   createTray()
   registerShortcuts()
+  // 错峰创建贴边启动器：等列表窗首帧就绪后再建，避免同时初始化两个透明窗口
+  // （无 GPU 的软件渲染下，同时创建多个透明置顶窗会明显卡顿）
+  const createLauncherDeferred = () => {
+    if (launcherWin && !launcherWin.isDestroyed()) return
+    createLauncherWindow()
+  }
+  if (listWin && !listWin.isDestroyed()) {
+    listWin.once('ready-to-show', () => setTimeout(createLauncherDeferred, 200))
+    setTimeout(createLauncherDeferred, 1500) // 兜底：ready-to-show 未触发时也要建出来
+  } else {
+    createLauncherDeferred()
+  }
   // 窗口就绪后再广播一次，确保「跟随系统」拿到的是最新的系统深色状态
   setTimeout(broadcastSystemDark, 300)
   app.on('activate', () => {

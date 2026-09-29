@@ -7,7 +7,7 @@
     @pointerup="onUp"
     @pointercancel="onUp"
   >
-    <!-- 收起：半个小球（渐变球体 + 呼吸动效；可拖到左右边缘；捕获便笺时播放涟漪） -->
+    <!-- 收起：半个小球（渐变球体；可拖到左右边缘；捕获便笺时播放涟漪） -->
     <div v-if="!expanded" class="ball" title="速记坞（拖动可上下移动、左右换边）">
       <span ref="coreEl" class="ball-core">❈</span>
       <span
@@ -142,8 +142,8 @@ onUnmounted(() => clearTimeout(catchTimer))
 
 /* ---------- 收起：小球 = MD3 FAB ----------
    窗口为 2R×2R（76×76），球体 40dp 居中；一半在屏外 → 露出半圆。
-   球壳 .ball 负责布局/拖拽命中，.ball-core 负责视觉与动效：
-   呼吸/弹跳走独立 scale 属性，与悬停的 transform 缩放互不干扰。 */
+   球壳 .ball 负责布局/拖拽命中，.ball-core 负责视觉与捕获弹跳：
+   弹跳走独立 scale 属性，与悬停的 transform 缩放互不干扰。 */
 .ball {
   position: relative;
   width: 40px;
@@ -166,7 +166,6 @@ onUnmounted(() => clearTimeout(catchTimer))
   background: var(--md-primary-container);
   box-shadow: var(--elev-3);
   opacity: .92;
-  animation: breathe 3.2s ease-in-out infinite;
   transition: opacity var(--dur-short) var(--md-ease-standard),
     transform var(--dur-short) var(--md-ease-standard),
     box-shadow var(--dur-short) var(--md-ease-standard);
@@ -178,13 +177,8 @@ onUnmounted(() => clearTimeout(catchTimer))
 }
 .ball:active .ball-core { transform: scale(.94); }
 
-/* 待机呼吸 */
-@keyframes breathe {
-  0%, 100% { scale: 1; }
-  50% { scale: 1.06; }
-}
 /* 捕获弹跳：吞下便笺瞬间的挤压伸展 */
-.ball-core.catch { animation: breathe 3.2s ease-in-out infinite, catch-pop .55s var(--md-ease-emphasized); }
+.ball-core.catch { animation: catch-pop .55s var(--md-ease-emphasized); }
 @keyframes catch-pop {
   0% { scale: 1.08; }
   35% { scale: 1.24; }

@@ -4,6 +4,7 @@
 let editor = null
 let onSave = () => {}
 let onInput = () => {}
+let composing = false // 输入法合成中：期间不做任何 DOM 改动，否则会打断合成
 
 export function initEngine(el, hooks = {}) {
   editor = el
@@ -290,7 +291,7 @@ function insertLineAboveList() {
 
 // ---------- 规范化 ----------
 export function normalize() {
-  if (!editor) return
+  if (!editor || composing) return // 合成期间跳过：挪动文本节点会打断输入法合成
   editor.querySelectorAll('div').forEach((d) => {
     const p = document.createElement('p')
     p.innerHTML = d.innerHTML
@@ -306,8 +307,27 @@ export function normalize() {
 }
 
 // ---------- 事件绑定（keydown / input / click） ----------
+// 处理一次输入：规范化块结构 → 行尾触发块级/行内语法转换 → 触发保存
+function processInput() {
+  normalize()
+  onInput()
+  const block = currentBlock()
+  if (block && caretAtEndOf(block)) {
+    if (convertBlock(block)) { scheduleSave(); return }
+    const node = textNodeAtCaret()
+    if (node && convertInline(node)) { scheduleSave(); return }
+  }
+  scheduleSave()
+}
+
 export function bindEditorEvents() {
+  // 输入法合成期间不做任何 DOM 处理：一旦挪动/替换正在组合的文本节点，合成会被打断，
+  // 表现为首字母被吞成英文（如输入 shuohua → 只留下 s + huohua）。
+  editor.addEventListener('compositionstart', () => { composing = true })
+  editor.addEventListener('compositionend', () => { composing = false; processInput() })
+
   editor.addEventListener('keydown', (e) => {
+    if (composing || e.isComposing || e.keyCode === 229) return // 合成中的按键（含回车选词）交给输入法
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       const block = currentBlock()
@@ -325,16 +345,9 @@ export function bindEditorEvents() {
     }
   })
 
-  editor.addEventListener('input', () => {
-    normalize()
-    onInput()
-    const block = currentBlock()
-    if (block && caretAtEndOf(block)) {
-      if (convertBlock(block)) { scheduleSave(); return }
-      const node = textNodeAtCaret()
-      if (node && convertInline(node)) { scheduleSave(); return }
-    }
-    scheduleSave()
+  editor.addEventListener('input', (e) => {
+    if (composing || e.isComposing) return // 合成期间跳过，等 compositionend 再统一处理
+    processInput()
   })
 
   editor.addEventListener('click', (e) => {
