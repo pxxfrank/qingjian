@@ -66,6 +66,29 @@ module.exports = {
     })()`)
     ok('已有文字行首补打 "1. " → 有序列表', markMid === '<ol start="1"><li>hello</li></ol>', markMid)
 
+    // 首行首字符前回车：应在上方插入新行（否则没法在最前面加行）
+    const enterTop = await evalIn(win, `(() => {
+      const ed = document.getElementById('editor')
+      ed.innerHTML = '<p>hello</p>'
+      const tn = ed.querySelector('p').firstChild
+      const r = document.createRange(); r.setStart(tn, 0); r.collapse(true)
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r)
+      ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      return ed.innerHTML
+    })()`)
+    ok('光标在块首回车 → 新行插到上方', enterTop === '<p><br></p><p>hello</p>', enterTop)
+
+    const enterEnd = await evalIn(win, `(() => {
+      const ed = document.getElementById('editor')
+      ed.innerHTML = '<p>hello</p>'
+      const tn = ed.querySelector('p').firstChild
+      const r = document.createRange(); r.setStart(tn, 5); r.collapse(true)
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r)
+      ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      return ed.innerHTML
+    })()`)
+    ok('光标在块尾回车 → 新行插到下方', enterEnd === '<p>hello</p><p><br></p>', enterEnd)
+
     console.log('\n[engine] 列表交互')
     const enterHtml = await evalIn(win, `(() => {
       const ed = document.getElementById('editor')

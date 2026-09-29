@@ -309,12 +309,14 @@ function handleEnter(block) {
     if (!block.textContent.trim()) { exitBlock(block); return }
     const bq = document.createElement('blockquote')
     bq.innerHTML = '<br>'
-    block.after(bq)
+    if (caretAtStartOf(block)) block.before(bq) // 光标在块首 → 新行插到上方
+    else block.after(bq)
     placeCaretAtEnd(bq)
   } else {
     const p = document.createElement('p')
     p.innerHTML = '<br>'
-    block.after(p)
+    if (caretAtStartOf(block)) block.before(p) // 光标在块首 → 新行插到上方（首行也能往上加行）
+    else block.after(p)
     placeCaretAtEnd(p)
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "qingjian",
   "productName": "轻笺",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "轻笺 · 轻量 Windows 便笺：Markdown 所见即所得、贴边启动器、回收站、暗夜模式",
   "main": "main.js",
   "scripts": {
