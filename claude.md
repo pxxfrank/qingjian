@@ -144,7 +144,7 @@ CSS 变量四主题：`:root` 浅色（米色，默认）、`[data-theme="white"
 ## 打包与代码签名
 
 - `npm run dist` = `npm run build` + `scripts/sign-and-package.ps1`（设置 `CSC_LINK` / `CSC_KEY_PASSWORD` 后调 `electron-builder --win`）。产物 `dist/轻笺-Setup-${version}.exe` 与 `dist/win-unpacked/轻笺.exe`。
-- **发版流程（每次出新版本都要做全）**：改 `package.json` 版本号 → `npm run dist` 打包签名 → 删 `dist/` 里旧版本产物 → `git commit` + `git push` → `gh release create vX.Y.Z` 上传安装包 → **把新安装包静默装到本机**（先关掉正在运行的轻笺，再 `Qingjian-Setup-X.Y.Z.exe /S`，装到 `%LOCALAPPDATA%\Programs\qingjian`），确保本机跑的始终是最新版。
+- **每次代码修复改完后，都要自动走完整发版流程（不必等确认）**：改 `package.json` 版本号 → `npm run dist` 打包签名 → 删 `dist/` 里旧版本产物 → `git commit` + `git push` → `gh release create vX.Y.Z` 上传安装包 → **把新安装包静默装到本机**（先关掉正在运行的轻笺，再 `Qingjian-Setup-X.Y.Z.exe /S`，装到 `%LOCALAPPDATA%\Programs\qingjian`），确保本机跑的始终是最新版。即「改完即打包发布并更新本机」。
 - 证书：优先外部 `CSC_LINK`；否则用 `certs/qingjian-sign.pfx`（缺则调 `scripts/make-dev-cert.ps1` 生成自签名证书）。**正式发布换成 CA 的 .pfx 即可，代码不用改。**
 - electron-builder 26 的签名选项在 **`win.signtoolOptions`**（`signingHashAlgorithms` / `rfc3161TimeStampServer`），**不要写在 `win` 顶层**（会 schema 校验失败：`configuration.win should be one of these: null`）。
 - 打包只含 `build.files` 白名单；**任何用户数据都不进安装包**（全在 `%APPDATA%\轻笺\`）。可 `npx @electron/asar list dist/win-unpacked/resources/app.asar` 复查。
