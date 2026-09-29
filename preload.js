@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld('api', {
   saveNoteSync: (id, payload) => ipcRenderer.sendSync('note:save-sync', id, payload),
   createNote: () => ipcRenderer.invoke('note:create'),
   deleteNote: (id) => ipcRenderer.invoke('note:delete', id),
-  openNote: (id, query) => ipcRenderer.send('window:open-note', id, query),
+  openNote: (id, query, task) => ipcRenderer.send('window:open-note', id, query, task),
   pickImage: () => ipcRenderer.invoke('image:pick'),
   saveImageData: (dataUrl) => ipcRenderer.invoke('image:save-data', dataUrl),
 
@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld('api', {
   searchNotes: (q) => ipcRenderer.invoke('search:query', q),
   openQuickFind: () => ipcRenderer.send('window:open-quickfind'),
   quickFindClose: () => ipcRenderer.send('quickfind:close'),
+
+  // 今日看板
+  todayList: () => ipcRenderer.invoke('today:list'),
+  todayToggle: (payload) => ipcRenderer.invoke('today:toggle', payload),
+  openToday: () => ipcRenderer.send('window:open-today'),
 
   // 提醒 / 到期通知
   remindList: (id) => ipcRenderer.invoke('remind:list', id),
@@ -81,6 +86,9 @@ contextBridge.exposeInMainWorld('api', {
   onLauncherPulse: (cb) => ipcRenderer.on('launcher:pulse', (_e, pulse) => cb(pulse)),
   onFindResult: (cb) => ipcRenderer.on('find:result', (_e, res) => cb(res)),
   onRemindChanged: (cb) => ipcRenderer.on('remind:changed', () => cb()),
+  onTodayChanged: (cb) => ipcRenderer.on('today:changed', () => cb()),
+  onNoteApplyTask: (cb) => ipcRenderer.on('note:apply-task', (_e, payload) => cb(payload)),
+  onNoteRevealTask: (cb) => ipcRenderer.on('note:reveal-task', (_e, payload) => cb(payload)),
   onCaptureReset: (cb) => ipcRenderer.on('capture:reset', () => cb()),
   onQuickFindReset: (cb) => ipcRenderer.on('quickfind:reset', () => cb()),
   onWindowReset: (cb) => ipcRenderer.on('window:reset', () => cb())

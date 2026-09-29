@@ -12,7 +12,8 @@ const modules = [
   require('./launcher.e2e.test'),
   require('./window.test'),
   require('./features.test'),
-  require('./search.test')
+  require('./search.test'),
+  require('./today.e2e.test')
 ]
 
 // 测试各模块会反复创建/销毁窗口，须阻止 Electron 默认的「窗口全关即退出」

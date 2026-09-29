@@ -10,14 +10,18 @@
           title="菜单：回收站 / 主题 / Markdown 语法"
           @click="menuOpen = !menuOpen"
         >
-          <span class="brand-mark" :class="{ trash: view === 'trash' }">{{ view === 'trash' ? '♻' : '❈' }}</span>
-          <span>{{ view === 'trash' ? '回收站' : '轻笺' }}</span>
+          <span class="brand-mark" :class="{ trash: view === 'trash', today: view === 'today' }">{{ view === 'trash' ? '♻' : (view === 'today' ? '☀' : '❈') }}</span>
+          <span>{{ view === 'trash' ? '回收站' : (view === 'today' ? '今日看板' : '轻笺') }}</span>
           <Icon name="chevron-down" class="brand-caret" />
         </button>
 
         <template v-if="menuOpen">
           <div class="menu-scrim" @click="menuOpen = false"></div>
           <div class="menu" role="menu">
+            <button class="menu-item" @click="showToday">
+              <Icon name="sun" /><span>今日看板</span>
+              <Icon v-if="view === 'today'" name="check" class="menu-tail" />
+            </button>
             <button class="menu-item" @click="menuTrash">
               <Icon :name="view === 'trash' ? 'list' : 'history'" />
               <span>{{ view === 'trash' ? '返回便笺列表' : '回收站' }}</span>
@@ -86,6 +90,32 @@
       </template>
     </main>
 
+    <!-- 今日看板：按便笺分组的未勾选任务 + 今日提醒 -->
+    <main v-else-if="view === 'today'" id="todayBoard" class="grid board">
+      <template v-if="today.length">
+        <section v-for="g in today" :key="g.id" class="t-group">
+          <header class="t-head">
+            <span class="t-dot" :style="{ background: swatchOf(g.color) }"></span>
+            <button class="t-title" @click="openBoardNote(g.id)">{{ g.title || '无标题' }}</button>
+          </header>
+          <ul class="t-items">
+            <li v-for="t in g.tasks" :key="'t' + t.index" class="t-task">
+              <button class="t-check" title="标记完成" @click="toggleBoardTask(g.id, t)"></button>
+              <button class="t-text" @click="revealBoardTask(g.id, t)">{{ t.text || '（空任务）' }}</button>
+            </li>
+            <li v-for="(r, i) in g.reminders" :key="'r' + i" class="t-remind">
+              <span class="t-ico">⏰</span>
+              <button class="t-text" @click="openBoardNote(g.id)">{{ remindLabel(r) }}</button>
+            </li>
+          </ul>
+        </section>
+      </template>
+      <div v-else class="empty">
+        <span class="leaf">☀</span>
+        <span>今天没有待办</span>
+      </div>
+    </main>
+
     <!-- 回收站 -->
     <main v-else id="trashGrid" class="grid">
       <div v-if="trash.length" class="trash-bar no-drag">
@@ -121,7 +151,9 @@
     <footer>
       {{ view === 'trash'
         ? '恢复后的便笺会回到列表顶部'
-        : '拖动顶部可移动窗口 · 删除的便笺可在回收站找回' }}
+        : (view === 'today'
+          ? '勾选任务即原地回写便笺 · 点击文字可跳转定位'
+          : '拖动顶部可移动窗口 · 删除的便笺可在回收站找回') }}
     </footer>
 
     <!-- Markdown 语法说明 -->
@@ -163,6 +195,7 @@ import { applyTheme, setSystemDark } from '../src/theme'
 const api = window.api
 const notes = ref([])
 const trash = ref([])
+const today = ref([])
 const query = ref('')
 const searchResults = ref([])
 const activeResult = ref(0)
@@ -292,6 +325,48 @@ async function refresh() {
 
 async function refreshTrash() {
   trash.value = await api.listTrash()
+}
+
+// ---------- 今日看板 ----------
+async function refreshToday() {
+  let res = []
+  try { res = await api.todayList() } catch { res = [] }
+  today.value = Array.isArray(res) ? res : []
+}
+
+function toToday() {
+  view.value = 'today'
+  refreshToday()
+}
+
+function showToday() {
+  menuOpen.value = false
+  toToday()
+}
+
+// 勾选任务：交主进程回写（便笺窗开着 → 原地切换；否则改 HTML），成功后看板随广播刷新
+function toggleBoardTask(noteId, t) {
+  api.todayToggle({ noteId, taskIndex: t.index, taskText: t.text, checked: true })
+}
+
+// 点击条目文字：打开便笺并定位到该任务项
+function revealBoardTask(noteId, t) {
+  api.openNote(noteId, '', { index: t.index, text: t.text })
+}
+
+function openBoardNote(noteId) {
+  api.openNote(noteId)
+}
+
+const REMIND_REPEAT_LABEL = { once: '一次', daily: '每天', weekly: '每周', weekdays: '工作日' }
+function remindLabel(r) {
+  const d = new Date(r.at)
+  const p = (n) => String(n).padStart(2, '0')
+  const label = REMIND_REPEAT_LABEL[r.repeat] || ''
+  let s = `${p(d.getHours())}:${p(d.getMinutes())}`
+  if (label) s += ` · ${label}`
+  if (r.text) s += ` ${r.text}`
+  return s
 }
 
 async function toggleView() {
@@ -433,11 +508,13 @@ onMounted(async () => {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (themePref.value === 'system') applyTheme('system')
   })
-  api.onNotesChanged(() => { refresh(); if (view.value === 'trash') refreshTrash(); if (query.value.trim()) scheduleSearch() })
+  api.onNotesChanged(() => { refresh(); if (view.value === 'trash') refreshTrash(); if (view.value === 'today') refreshToday(); if (query.value.trim()) scheduleSearch() })
+  api.onTodayChanged(() => { if (view.value === 'today') refreshToday() })
   api.onListCommand((v) => {
-    if (v !== 'trash' && v !== 'notes') return
+    if (v !== 'trash' && v !== 'notes' && v !== 'today') return
     view.value = v
     if (v === 'trash') refreshTrash()
+    else if (v === 'today') refreshToday()
     else refresh()
   })
   await refresh()
@@ -762,6 +839,79 @@ onUnmounted(() => {
   font-size: 13px;
 }
 .leaf { display: block; font-size: 28px; margin-bottom: 10px; opacity: .45; color: var(--md-primary); }
+
+/* ---------- 今日看板 ---------- */
+.board { gap: 12px; }
+.t-group {
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-m);
+  background: var(--md-surface-container-low);
+  box-shadow: var(--elev-0);
+  animation: card-in var(--dur-medium) var(--md-ease-emphasized) backwards;
+}
+.t-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.t-dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: var(--shape-full); }
+.t-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: "Microsoft YaHei", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  color: var(--md-on-surface);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.t-title:hover { color: var(--md-primary); }
+.t-items {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.t-task,
+.t-remind { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* MD3 checkbox 样式的「标记完成」按钮 */
+.t-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 2px solid var(--md-outline);
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--dur-short) var(--md-ease-standard), border-color var(--dur-short) var(--md-ease-standard);
+}
+.t-check:hover { border-color: var(--md-primary); background: color-mix(in srgb, var(--md-primary) 8%, transparent); }
+.t-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 3px 0;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--md-on-surface);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.t-text:hover { color: var(--md-primary); }
+.t-remind { color: var(--md-on-surface-variant); }
+.t-remind .t-text { color: inherit; font-variant-numeric: tabular-nums; }
+.t-ico { flex: 0 0 auto; font-size: 12px; }
 
 /* ---------- 回收站 ---------- */
 .trash-bar {

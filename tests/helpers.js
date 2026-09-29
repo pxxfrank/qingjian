@@ -3,6 +3,8 @@ const { BrowserWindow, ipcMain } = require('electron')
 const path = require('path')
 const { createStore } = require('../store')
 const { createNoteIndex } = require('../note-index')
+const { buildToday } = require('../today')
+const { toggleTask } = require('../notes-parse')
 
 const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
@@ -10,6 +12,7 @@ let store = null
 let noteIndex = null
 let lastOpened = null
 let listWin = null
+const applyTaskEvents = [] // 记录主进程下发给便笺窗的 note:apply-task
 const stats = { pass: 0, fail: 0, failures: [] }
 
 function ok(name, cond, extra) {
@@ -25,6 +28,7 @@ function initStore(tmpDir) {
   store = createStore(path.join(tmpDir, 'notes'), path.join(tmpDir, 'settings.json'))
   store.ensureNotesDir()
   noteIndex = createNoteIndex(store)
+  applyTaskEvents.length = 0
   return store
 }
 
@@ -130,6 +134,28 @@ function registerIpc() {
   ipcMain.on('find:stop', (e) => e.sender.send('find:result', { matches: 0, active: 0 }))
   // 全文搜索（与 main.js 契约一致）
   ipcMain.handle('search:query', (_e, q) => searchNotes(q))
+  // 今日看板（与 main.js 契约一致）
+  ipcMain.handle('today:list', () => buildToday(store.readAllNotes(), { index: noteIndex }))
+  ipcMain.handle('today:toggle', (_e, payload) => {
+    const { noteId, taskIndex, taskText, checked } = payload || {}
+    const win = noteWins.get(noteId)
+    if (win && !win.isDestroyed()) {
+      const ev = { index: taskIndex, text: taskText, checked: !!checked }
+      applyTaskEvents.push(ev)
+      win.webContents.send('note:apply-task', ev)
+    } else {
+      const note = store.readNote(noteId)
+      if (note) {
+        store.writeNote(noteId, { html: toggleTask(note.html || '', taskIndex, !!checked) })
+        noteIndex.invalidate(noteId)
+      }
+    }
+    if (listWin && !listWin.isDestroyed()) listWin.webContents.send('today:changed')
+    return true
+  })
+  ipcMain.on('window:open-today', () => {
+    if (listWin && !listWin.isDestroyed()) listWin.webContents.send('list:view', 'today')
+  })
   // 提醒（与 main.js 契约一致）
   ipcMain.handle('remind:list', (_e, id) => {
     const note = store.readNote(id)
@@ -137,8 +163,16 @@ function registerIpc() {
   })
   ipcMain.handle('remind:set', (_e, id, rem) => store.setReminder(id, rem))
   ipcMain.handle('remind:remove', (_e, id, remId) => store.removeReminder(id, remId))
-  // 记录最后一次「打开便笺」（含可选高亮 query），供搜索结果点击用例断言
-  ipcMain.on('window:open-note', (_e, id, q) => { lastOpened = { id, q: typeof q === 'string' ? q : '' } })
+  // 记录最后一次「打开便笺」（含可选高亮 query / 定位任务），供点击用例断言
+  ipcMain.on('window:open-note', (_e, id, q, task) => { lastOpened = { id, q: typeof q === 'string' ? q : '', task: task || null } })
+  // 模拟主进程的「加载完成后再定位」：带 task 时下发 note:reveal-task
+  ipcMain.on('window:open-note', (_e, id, q, task) => {
+    if (!task || typeof task !== 'object') return
+    const win = noteWins.get(id)
+    if (win && !win.isDestroyed()) {
+      setTimeout(() => { if (!win.isDestroyed()) win.webContents.send('note:reveal-task', task) }, 150)
+    }
+  })
   // 快速搜索面板（无窗口控制需求，空实现即可）
   ipcMain.on('window:open-quickfind', () => {})
   ipcMain.on('quickfind:close', () => {})
@@ -257,5 +291,6 @@ module.exports = {
   stats, ok, initStore, registerIpc,
   createNoteWindow, createListWindow, createQuickFindWindow, evalIn, typeText, sendKeys, sleep,
   getStore: () => store,
-  getLastOpened: () => lastOpened
+  getLastOpened: () => lastOpened,
+  getApplyTaskEvents: () => applyTaskEvents
 }

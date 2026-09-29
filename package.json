@@ -1,14 +1,14 @@
 {
   "name": "qingjian",
   "productName": "轻笺",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "轻笺 · 轻量 Windows 便笺：Markdown 所见即所得、贴边启动器、回收站、暗夜模式",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "vite build --config frontend/vite.config.mjs",
     "pretest": "npm run build",
-    "test": "node tests/parse.test.js && node tests/store.test.js && node tests/reminders.test.js && node tests/launcher.test.js && electron tests/e2e-runner.js",
+    "test": "node tests/parse.test.js && node tests/store.test.js && node tests/reminders.test.js && node tests/launcher.test.js && node tests/today.test.js && electron tests/e2e-runner.js",
     "cert:dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-dev-cert.ps1",
     "dist": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-and-package.ps1",
     "dist:unsigned": "npm run build && electron-builder --win"
@@ -40,6 +40,7 @@
       "store.js",
       "notes-parse.js",
       "note-index.js",
+      "today.js",
       "reminders.js",
       "reminder-scheduler.js",
       "launcher.js",

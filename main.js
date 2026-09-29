@@ -9,8 +9,9 @@ const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const { createStore } = require('./store')
 const { createLauncher } = require('./launcher')
-const { htmlToText } = require('./notes-parse')
+const { htmlToText, toggleTask } = require('./notes-parse')
 const { createNoteIndex } = require('./note-index')
+const { buildToday } = require('./today')
 const { createReminderScheduler } = require('./reminder-scheduler')
 
 const NOTE_MIN_W = 380 // 便笺窗最小宽度：标题 ≥96px 且标题栏图标完整显示
@@ -172,7 +173,7 @@ function launcherItems() {
     }
     notes.push({ id, title: note.title || '', color: note.color || 'yellow' })
   }
-  return { notes, list: listMinimized }
+  return { notes, list: listMinimized, today: true }
 }
 
 function broadcastLauncherItems() {
@@ -184,8 +185,9 @@ function broadcastLauncherItems() {
 // 依据「被收起的窗口数」刷新横条内容；小球始终常驻显示
 function refreshLauncher() {
   const items = launcherItems()
-  const total = items.notes.length + (items.list ? 1 : 0)
-  launcherCtrl?.setCount(total + 2) // ☰ 列表 + 被收起的窗口 + ＋ 新建
+  // count 必须与横条实际渲染的图标数一致：☰ 列表 + ☀ 今日看板 + ＋ 新建 + 被收起的便笺
+  const total = items.notes.length + (items.today ? 1 : 0) + 2
+  launcherCtrl?.setCount(total)
   launcherCtrl?.show()
   broadcastLauncherItems()
 }
@@ -546,6 +548,61 @@ function openNoteWithFind(id, query) {
   }
 }
 
+// ---------- 今日看板 ----------
+// 从全部便笺构造看板数据（未勾选任务 + 本地今天的未完成提醒）
+function todayList() {
+  return buildToday(store.readAllNotes(), { index: noteIndex })
+}
+
+function broadcastTodayChanged() {
+  if (listWin && !listWin.isDestroyed()) listWin.webContents.send('today:changed')
+}
+
+// 看板勾选回写：便笺窗开着 → 让渲染层原地切换该 li 的 class（不替换 innerHTML，光标不跳）；
+// 否则主进程直接改 HTML 落盘。两种情况都广播（看板 + 列表刷新）。
+function applyTodayToggle(payload) {
+  const { noteId, taskIndex, taskText, checked } = payload || {}
+  if (!noteId) return false
+  const win = noteWins.get(noteId)
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('note:apply-task', { index: taskIndex, text: taskText, checked: !!checked })
+    // 渲染层切换 class 后会触发自身防抖保存，主进程无需改写 HTML
+  } else {
+    const note = store.readNote(noteId)
+    if (!note) return false
+    const html = toggleTask(note.html || '', taskIndex, !!checked)
+    store.writeNote(noteId, { html })
+    noteIndex.invalidate(noteId)
+  }
+  broadcastNotes(noteId)
+  broadcastTodayChanged()
+  return true
+}
+
+// 打开便笺并在加载完成后定位高亮任务项（看板点击条目文字；参考 openNoteWithFind 的写法）
+function openNoteWithTask(id, task) {
+  const existed = noteWins.get(id)
+  openNote(id)
+  const win = noteWins.get(id)
+  if (!win || win.isDestroyed() || !task) return
+  let fired = false
+  const fire = () => {
+    if (fired) return
+    fired = true
+    if (win.isDestroyed()) return
+    // 等一帧让便笺完成首屏渲染再定位
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.webContents.send('note:reveal-task', { index: task.index, text: task.text })
+    }, 150)
+  }
+  if (existed && !existed.isDestroyed() && !win.webContents.isLoading()) {
+    fire()
+  } else {
+    win.webContents.once('did-finish-load', fire)
+    win.once('ready-to-show', fire)
+  }
+}
+
 // ---------- 全文搜索 ----------
 function countOccurrences(hay, needle) {
   if (!needle) return 0
@@ -616,6 +673,7 @@ function buildTray() {
   const trashCount = store.trashCount()
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '显示便笺列表', click: () => showWindow(listWin) },
+    { label: '今日看板', click: () => showListView('today') },
     { label: captureShortcut ? `速记条（${captureShortcut}）` : '速记条', click: () => toggleCapture() },
     { label: findShortcut ? `快速搜索（${findShortcut}）` : '快速搜索', click: () => openQuickFind() },
     { label: '新建便笺', click: () => createNewNote() },
@@ -763,12 +821,23 @@ ipcMain.handle('trash:empty', () => {
 // 全文搜索：标题 + 正文纯文本子串匹配
 ipcMain.handle('search:query', (_e, q) => runSearch(q))
 
+// 今日看板：聚合 / 勾选回写 / 打开入口
+ipcMain.handle('today:list', () => todayList())
+ipcMain.handle('today:toggle', (_e, payload) => applyTodayToggle(payload))
+ipcMain.on('window:open-today', () => {
+  listMinimized = false
+  if (!listWin || listWin.isDestroyed()) createListWindow()
+  showListView('today')
+  refreshLauncher()
+})
+
 // 快速搜索面板
 ipcMain.on('window:open-quickfind', () => openQuickFind())
 ipcMain.on('quickfind:close', () => closeQuickFind())
 
-ipcMain.on('window:open-note', (_e, id, query) => {
-  if (typeof query === 'string' && query.trim()) openNoteWithFind(id, query)
+ipcMain.on('window:open-note', (_e, id, query, task) => {
+  if (task && typeof task === 'object') openNoteWithTask(id, task)
+  else if (typeof query === 'string' && query.trim()) openNoteWithFind(id, query)
   else openNote(id)
 })
 

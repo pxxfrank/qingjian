@@ -423,3 +423,12 @@ body.no-transition { transition: none !important; }
   color: var(--muted);
   text-decoration: line-through;
 }
+/* 今日看板跳转定位：命中任务项临时高亮（纯视觉 class，保存时会被剔除，不落盘） */
+#editor li.flash {
+  border-radius: var(--shape-xs);
+  animation: task-flash 1.5s var(--md-ease-standard);
+}
+@keyframes task-flash {
+  0%, 100% { background: transparent; }
+  25%, 65% { background: color-mix(in srgb, var(--md-primary) 24%, transparent); }
+}

@@ -55,6 +55,7 @@ const remindAt = ref(null) // 最近一个未完成提醒的 at（供标题栏�
 let saveTimer = null
 let dirty = false
 let themePref = 'system'
+let flashTimer = null
 
 function onTitle(v) {
   title.value = v
@@ -71,10 +72,17 @@ function payload() {
   // 去掉输入法合成占位用的零宽字符（见 engine.js），不落盘
   const plain = editorEl.value.innerText.replace(/\u200B/g, '').replace(/\s+/g, ' ').trim()
   return {
-    html: editorEl.value.innerHTML.replace(/\u200B/g, ''),
+    html: contentHtml(),
     title: title.value.trim() || plain.slice(0, 30),
     preview: plain.slice(0, 100)
   }
+}
+
+// 保存用 HTML：剔除纯视觉的 flash 高亮 class（看板跳转定位用），避免污染便笺内容
+function contentHtml() {
+  const clone = editorEl.value.cloneNode(true)
+  clone.querySelectorAll('.flash').forEach((el) => el.classList.remove('flash'))
+  return clone.innerHTML.replace(/\u200B/g, '')
 }
 
 function saveNow() {
@@ -125,6 +133,41 @@ async function loadRemind() {
 function hideToDock() {
   flushSave()
   api.hideToDock()
+}
+
+// ---------- 今日看板联动 ----------
+// 按 text（优先）或 index 定位编辑器里的任务项（li.checkbox）
+function findTaskNode(index, text) {
+  if (!editorEl.value) return null
+  const items = [...editorEl.value.querySelectorAll('li.checkbox')]
+  if (text) {
+    const want = String(text).trim()
+    if (want) {
+      const hit = items.find((li) => (li.innerText || '').trim() === want)
+      if (hit) return hit
+    }
+  }
+  return typeof index === 'number' ? items[index] || null : null
+}
+
+// 看板勾选回写：只切换 class，绝不替换 innerHTML（否则光标跳/打断编辑）
+function onApplyTask(payload) {
+  const { index, text, checked } = payload || {}
+  const li = findTaskNode(index, text)
+  if (!li) return
+  li.classList.toggle('checked', !!checked)
+  scheduleSave()
+}
+
+// 看板跳转定位：滚动到任务项并临时高亮（flash 为纯视觉，保存时会被剔除）
+function onRevealTask(payload) {
+  const { index, text } = payload || {}
+  const li = findTaskNode(index, text)
+  if (!li) return
+  li.scrollIntoView({ block: 'center' })
+  li.classList.add('flash')
+  clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => { li.classList.remove('flash') }, 1500)
 }
 
 function openFind() {
@@ -276,6 +319,8 @@ onMounted(async () => {
   api.onThemeChanged((t) => applyTheme(t))
   api.onSystemDark((dark) => { setSystemDark(dark); applyTheme(themePref) })
   api.onRemindChanged(() => loadRemind()) // 提醒增删/触发后刷新 ⏰ 高亮
+  api.onNoteApplyTask(onApplyTask) // 今日看板勾选 → 原地切换 class + 防抖保存
+  api.onNoteRevealTask(onRevealTask) // 今日看板跳转 → 滚动定位 + 临时高亮
   api.onWindowReset(() => {}) // 收起动画已取消，仅保留通道兼容
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (themePref === 'system') applyTheme('system')
@@ -285,6 +330,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   flushSave()
+  clearTimeout(flashTimer)
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('beforeunload', flushSave)
   window.removeEventListener('pagehide', flushSave)

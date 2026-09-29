@@ -23,6 +23,9 @@
       <button class="ico md-state list" title="便笺列表" @pointerdown.stop @click="openList">
         <Icon name="list" />
       </button>
+      <button class="ico md-state today" title="今日看板" @pointerdown.stop @click="openToday">
+        <Icon name="sun" />
+      </button>
       <button
         v-for="n in items.notes"
         :key="n.id"
@@ -67,6 +70,9 @@ async function refreshItems() {
 
 function openList() {
   api.openList()
+}
+function openToday() {
+  api.openToday()
 }
 function openNote(id) {
   api.openNote(id)
