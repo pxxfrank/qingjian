@@ -21,9 +21,14 @@ contextBridge.exposeInMainWorld('api', {
   saveNoteSync: (id, payload) => ipcRenderer.sendSync('note:save-sync', id, payload),
   createNote: () => ipcRenderer.invoke('note:create'),
   deleteNote: (id) => ipcRenderer.invoke('note:delete', id),
-  openNote: (id) => ipcRenderer.send('window:open-note', id),
+  openNote: (id, query) => ipcRenderer.send('window:open-note', id, query),
   pickImage: () => ipcRenderer.invoke('image:pick'),
   saveImageData: (dataUrl) => ipcRenderer.invoke('image:save-data', dataUrl),
+
+  // 全文搜索
+  searchNotes: (q) => ipcRenderer.invoke('search:query', q),
+  openQuickFind: () => ipcRenderer.send('window:open-quickfind'),
+  quickFindClose: () => ipcRenderer.send('quickfind:close'),
 
   // 回收站
   listTrash: () => ipcRenderer.invoke('trash:list'),
@@ -71,5 +76,6 @@ contextBridge.exposeInMainWorld('api', {
   onLauncherPulse: (cb) => ipcRenderer.on('launcher:pulse', (_e, pulse) => cb(pulse)),
   onFindResult: (cb) => ipcRenderer.on('find:result', (_e, res) => cb(res)),
   onCaptureReset: (cb) => ipcRenderer.on('capture:reset', () => cb()),
+  onQuickFindReset: (cb) => ipcRenderer.on('quickfind:reset', () => cb()),
   onWindowReset: (cb) => ipcRenderer.on('window:reset', () => cb())
 })

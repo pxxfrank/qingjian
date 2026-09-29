@@ -63,6 +63,15 @@ function createStore(notesDir, settingsFile, trashDir) {
     return readJson(noteFile(id))
   }
 
+  // 一次遍历 notes 目录返回完整便笺对象数组（供全文搜索等需要正文的场景）
+  function readAllNotes() {
+    ensureNotesDir()
+    return fs.readdirSync(notesDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => readJson(path.join(notesDir, f)))
+      .filter(Boolean)
+  }
+
   function writeNote(id, data) {
     ensureNotesDir()
     const prev = readNote(id) || {}
@@ -179,6 +188,7 @@ function createStore(notesDir, settingsFile, trashDir) {
     ensureNotesDir,
     listNotes,
     readNote,
+    readAllNotes,
     writeNote,
     deleteNote: moveToTrash,
     moveToTrash,

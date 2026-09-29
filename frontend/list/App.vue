@@ -59,11 +59,31 @@
 
     <!-- 便笺列表 -->
     <main v-if="view === 'notes'" id="noteGrid" class="grid">
-      <NoteCard v-for="(n, i) in filtered" :key="n.id" :note="n" :index="i" @open="openNote" @delete="delNote" />
-      <div v-if="!filtered.length" class="empty">
-        <span class="leaf">❈</span>
-        <span>{{ notes.length ? '没有匹配的便笺' : '还没有便笺，点击右上角 ＋ 新建' }}</span>
-      </div>
+      <!-- 全文搜索结果视图（query 非空且有命中时替换正常列表） -->
+      <template v-if="showResults">
+        <div
+          v-for="(r, i) in searchResults"
+          :key="r.id"
+          class="sr-item"
+          :class="{ on: i === activeResult }"
+          @mouseenter="activeResult = i"
+          @click="openResult(r)"
+        >
+          <div class="sr-row">
+            <span class="sr-dot" :style="{ background: swatchOf(r.color) }"></span>
+            <div class="sr-title" v-html="titleHtml(r)"></div>
+            <span class="sr-count">{{ r.count }} 处</span>
+          </div>
+          <div v-for="(m, mi) in bodyMatches(r)" :key="mi" class="sr-snippet" v-html="highlight(m)"></div>
+        </div>
+      </template>
+      <template v-else>
+        <NoteCard v-for="(n, i) in filtered" :key="n.id" :note="n" :index="i" @open="openNote" @delete="delNote" />
+        <div v-if="!filtered.length" class="empty">
+          <span class="leaf">❈</span>
+          <span>{{ notes.length ? '没有匹配的便笺' : '还没有便笺，点击右上角 ＋ 新建' }}</span>
+        </div>
+      </template>
     </main>
 
     <!-- 回收站 -->
@@ -134,7 +154,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import NoteCard from '../src/components/NoteCard.vue'
 import Icon from '../src/components/Icon.vue'
 import { noteColors } from '../src/tokens'
@@ -144,6 +164,8 @@ const api = window.api
 const notes = ref([])
 const trash = ref([])
 const query = ref('')
+const searchResults = ref([])
+const activeResult = ref(0)
 const themePref = ref('system')
 const view = ref('notes')
 const menuOpen = ref(false)
@@ -153,6 +175,7 @@ const purgeConfirm = ref('')
 
 let emptyTimer = null
 let purgeTimer = null
+let searchTimer = null
 
 const trashCount = computed(() => trash.value.length)
 
@@ -161,6 +184,9 @@ const filtered = computed(() => {
   if (!q) return notes.value
   return notes.value.filter((n) => (n.title + ' ' + n.preview).toLowerCase().includes(q))
 })
+
+// 全文搜索结果视图：query 非空且后端已返回命中时替换正常列表
+const showResults = computed(() => query.value.trim() !== '' && searchResults.value.length > 0)
 
 const filteredTrash = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -212,6 +238,53 @@ const syntaxGroups = [
 function swatchOf(c) {
   return (noteColors[c] || noteColors.yellow).swatch
 }
+
+// ---------- 全文搜索结果渲染 ----------
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ))
+}
+
+// 片段纯文本转义 + 命中段包 <mark>（纯文本来自主进程，无 HTML）
+function highlight(m) {
+  const s = m.snippet || ''
+  const a = Math.max(0, Math.min(s.length, m.start | 0))
+  const b = Math.max(a, Math.min(s.length, m.end | 0))
+  return escapeHtml(s.slice(0, a)) +
+    '<mark class="sr-mark">' + escapeHtml(s.slice(a, b)) + '</mark>' +
+    escapeHtml(s.slice(b))
+}
+
+function titleHtml(r) {
+  const m = r.matches.find((x) => x.field === 'title')
+  return m ? highlight(m) : escapeHtml(r.title || '无标题')
+}
+
+function bodyMatches(r) {
+  return r.matches.filter((x) => x.field === 'body')
+}
+
+// 点结果：打开便笺并高亮命中（复用便笺内查找机制）
+function openResult(r) {
+  api.openNote(r.id, query.value.trim())
+}
+
+// 输入即保留原有标题内存过滤，同时防抖调用后端全文搜索
+function scheduleSearch() {
+  clearTimeout(searchTimer)
+  const q = query.value.trim()
+  if (!q) { searchResults.value = []; return }
+  searchResults.value = [] // 输入变化即清空旧结果，避免展示过期命中
+  searchTimer = setTimeout(async () => {
+    let res = []
+    try { res = await api.searchNotes(q) } catch { res = [] }
+    if (query.value.trim() !== q) return // 竞态保护：查询已变则丢弃
+    searchResults.value = Array.isArray(res) ? res : []
+    activeResult.value = 0
+  }, 150)
+}
+watch(query, scheduleSearch)
 
 async function refresh() {
   notes.value = await api.listNotes()
@@ -360,7 +433,7 @@ onMounted(async () => {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (themePref.value === 'system') applyTheme('system')
   })
-  api.onNotesChanged(() => { refresh(); if (view.value === 'trash') refreshTrash() })
+  api.onNotesChanged(() => { refresh(); if (view.value === 'trash') refreshTrash(); if (query.value.trim()) scheduleSearch() })
   api.onListCommand((v) => {
     if (v !== 'trash' && v !== 'notes') return
     view.value = v
@@ -373,6 +446,7 @@ onMounted(async () => {
 onUnmounted(() => {
   clearTimeout(emptyTimer)
   clearTimeout(purgeTimer)
+  clearTimeout(searchTimer)
   window.removeEventListener('pointermove', onMove)
   window.removeEventListener('pointerup', endResize)
   window.removeEventListener('pointercancel', endResize)
@@ -610,6 +684,67 @@ onUnmounted(() => {
   transition: color var(--dur-short) var(--md-ease-standard);
 }
 .search-clear:hover { color: var(--md-primary); }
+
+/* ---------- 全文搜索结果 ---------- */
+.sr-item {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-m);
+  background: var(--md-surface-container-low);
+  box-shadow: var(--elev-0);
+  cursor: pointer;
+  transition: border-color var(--dur-short) var(--md-ease-standard),
+    box-shadow var(--dur-short) var(--md-ease-standard),
+    transform var(--dur-short) var(--md-ease-standard);
+  animation: card-in var(--dur-medium) var(--md-ease-emphasized) backwards;
+}
+.sr-item:hover,
+.sr-item.on {
+  border-color: var(--md-outline);
+  box-shadow: var(--elev-1);
+  transform: translateY(-1px);
+}
+.sr-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sr-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--shape-full);
+}
+.sr-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 14px;
+  font-family: "Microsoft YaHei", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  color: var(--md-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sr-count {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--md-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+.sr-snippet {
+  margin: 6px 0 0 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--md-on-surface-variant);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sr-mark {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border-radius: var(--shape-xs);
+  padding: 0 1px;
+}
 
 .grid {
   flex: 1;

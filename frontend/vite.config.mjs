@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// 多页应用：list（便笺列表） + note（便笺编辑器） + launcher（贴边启动器） + capture（速记条）
+// 多页应用：list（便笺列表） + note（便笺编辑器） + launcher（贴边启动器） + capture（速记条） + quickfind（快速搜索）
 // base './' 保证 file:// 协议下资源相对路径可加载
 export default defineConfig({
   root: __dirname,
@@ -21,7 +21,8 @@ export default defineConfig({
         list: resolve(__dirname, 'list/index.html'),
         note: resolve(__dirname, 'note/index.html'),
         launcher: resolve(__dirname, 'launcher/index.html'),
-        capture: resolve(__dirname, 'capture/index.html')
+        capture: resolve(__dirname, 'capture/index.html'),
+        quickfind: resolve(__dirname, 'quickfind/index.html')
       }
     }
   }

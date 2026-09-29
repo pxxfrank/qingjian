@@ -303,6 +303,19 @@ body.capture-page {
   box-shadow: none;
 }
 
+/* ---------- 快速搜索面板（透明浮动窗） ---------- */
+body.quickfind-page {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+body.quickfind-page #app {
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}
+
 /* ---------- 软件渲染降级（无 GPU / 虚拟机 / 远程桌面） ----------
    主进程检出纯软件渲染时给 <html> 打 .soft-render：关闭全部动效、去掉窗口内
    12px 透明留白与投影（配合主进程把列表/便笺窗改为不透明），以降低分层窗口的

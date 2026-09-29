@@ -9,14 +9,20 @@ const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 const { createStore } = require('./store')
 const { createLauncher } = require('./launcher')
+const { htmlToText } = require('./notes-parse')
+const { createNoteIndex } = require('./note-index')
 
 const NOTE_MIN_W = 380 // 便笺窗最小宽度：标题 ≥96px 且标题栏图标完整显示
 const LIST_MIN_W = 340 // 列表窗最小宽度：卡片标题保持横向单行
 const CAPTURE_W = 480
 const CAPTURE_H = 80 // MD3 搜索条 56dp + 上下留白
+const QUICKFIND_W = 560
+const QUICKFIND_H = 420
 const LAUNCHER_WIN = 76 // 贴边启动器窗口（2×WIN_R，与 launcher-geometry 一致）
 // 全局热键候选：按顺序尝试，第一个注册成功的生效（Alt+Space 可能被系统窗口菜单占用）
 const SHORTCUT_CANDIDATES = ['Alt+Space', 'Ctrl+Alt+Space', 'Alt+Shift+Space']
+// 快速搜索候选：Ctrl+Shift+F 可能被输入法/其他软件占用
+const FIND_SHORTCUT_CANDIDATES = ['Ctrl+Shift+F', 'Ctrl+Alt+F', 'Alt+Shift+F']
 
 // 附件协议：图片落盘到 userData/attachments，用 note-att://local/<file> 读取，
 // 避免把 base64 塞进便笺 JSON（一张截图就能让文件涨到数 MB）。
@@ -28,6 +34,8 @@ const store = createStore(
   path.join(app.getPath('userData'), 'notes'),
   path.join(app.getPath('userData'), 'settings.json')
 )
+// 便笺派生缓存（正文纯文本 + 任务项）：全文搜索与后续「今日看板」共用
+const noteIndex = createNoteIndex(store)
 
 // ---------- 渲染环境探测 ----------
 // 无 GPU（虚拟机 / 远程桌面）时 Electron 退化为纯软件渲染，透明置顶窗口要由 DWM
@@ -68,9 +76,11 @@ const noteWins = new Map() // id -> BrowserWindow
 let launcherWin = null
 let launcherCtrl = null
 let captureWin = null
+let quickFindWin = null // 全局快速搜索面板（惰性创建）
 let tray = null
 let isQuitting = false
 let captureShortcut = ''
+let findShortcut = ''
 
 // 被「收起到贴边」的窗口：只有这些才出现在小球里
 const minimizedNotes = new Set()
@@ -261,11 +271,78 @@ function toggleCapture() {
   captureWin.webContents.send('capture:reset')
 }
 
+// ---------- 全局快速搜索面板（照抄速记条窗口的创建方式） ----------
+function createQuickFindWindow() {
+  quickFindWin = new BrowserWindow({
+    width: QUICKFIND_W,
+    height: QUICKFIND_H,
+    frame: false,
+    transparent: !softRender, // 软件渲染下改不透明，省掉分层窗口合成
+    ...(softRender ? { backgroundColor: windowBgColor() } : {}),
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      spellcheck: false,
+      additionalArguments: rendererArgs()
+    }
+  })
+  quickFindWin.loadFile(path.join(__dirname, 'frontend', 'dist', 'quickfind', 'index.html'))
+  quickFindWin.on('blur', () => {
+    if (quickFindWin && !quickFindWin.isDestroyed()) quickFindWin.hide()
+  })
+  quickFindWin.on('closed', () => { quickFindWin = null })
+}
+
+function openQuickFind() {
+  const fresh = !quickFindWin || quickFindWin.isDestroyed()
+  if (fresh) createQuickFindWindow()
+  const { screen } = require('electron')
+  const cur = screen.getCursorScreenPoint()
+  const wa = screen.getDisplayNearestPoint(cur).workArea // 在光标所在显示器居中
+  const x = Math.round(wa.x + (wa.width - QUICKFIND_W) / 2)
+  const y = Math.round(wa.y + (wa.height - QUICKFIND_H) / 2)
+  let revealed = false
+  const reveal = () => {
+    if (revealed || !quickFindWin || quickFindWin.isDestroyed()) return
+    revealed = true
+    quickFindWin.setBounds({ x, y, width: QUICKFIND_W, height: QUICKFIND_H })
+    quickFindWin.showInactive()
+    quickFindWin.focus()
+    quickFindWin.webContents.send('quickfind:reset')
+  }
+  quickFindWin.webContents.send('window:reset')
+  if (fresh || quickFindWin.webContents.isLoading()) {
+    // 首次打开 / 尚未加载完：ready-to-show 后再显示（兜底 did-finish-load）
+    quickFindWin.once('ready-to-show', reveal)
+    quickFindWin.webContents.once('did-finish-load', () => setTimeout(reveal, 30))
+  } else {
+    reveal()
+  }
+}
+
+function closeQuickFind() {
+  if (quickFindWin && !quickFindWin.isDestroyed()) quickFindWin.hide()
+}
+
 function registerShortcuts() {
   for (const acc of SHORTCUT_CANDIDATES) {
     try {
       if (globalShortcut.register(acc, toggleCapture)) {
         captureShortcut = acc
+        break
+      }
+    } catch { /* 注册失败则尝试下一个 */ }
+  }
+  for (const acc of FIND_SHORTCUT_CANDIDATES) {
+    try {
+      if (globalShortcut.register(acc, openQuickFind)) {
+        findShortcut = acc
         break
       }
     } catch { /* 注册失败则尝试下一个 */ }
@@ -381,10 +458,101 @@ function openNote(id) {
   refreshLauncher()
 }
 
-// 便笺集合变化：刷新列表窗口 + 启动器
+// 便笺集合变化：失效派生缓存 + 刷新列表窗口 + 启动器
 function broadcastNotes(id) {
+  if (id) noteIndex.invalidate(id)
   if (listWin && !listWin.isDestroyed()) listWin.webContents.send('notes:changed', id)
   broadcastLauncherItems()
+}
+
+// 打开便笺并在加载完成后高亮命中（快速搜索 / 列表搜索结果复用）
+function openNoteWithFind(id, query) {
+  const existed = noteWins.get(id)
+  openNote(id)
+  const win = noteWins.get(id)
+  if (!win || win.isDestroyed()) return
+  const q = (query || '').trim()
+  if (!q) return
+  let fired = false
+  const fire = () => {
+    if (fired) return
+    fired = true
+    if (win.isDestroyed()) return
+    // 等一帧让便笺完成首屏渲染再查找（渲染层通过 found-in-page → find:result 收到命中）
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.webContents.findInPage(q, { forward: true, findNext: false })
+    }, 150)
+  }
+  if (existed && !existed.isDestroyed() && !win.webContents.isLoading()) {
+    fire()
+  } else {
+    // 新开 / 尚未加载完：等渲染完成再发查找
+    win.webContents.once('did-finish-load', fire)
+    win.once('ready-to-show', fire)
+  }
+}
+
+// ---------- 全文搜索 ----------
+function countOccurrences(hay, needle) {
+  if (!needle) return 0
+  let n = 0
+  let i = 0
+  while ((i = hay.indexOf(needle, i)) !== -1) {
+    n++
+    i += needle.length
+  }
+  return n
+}
+
+// 命中处前后各上下文（默认 ~20 字），返回纯文本片段与命中在片段内的下标
+function contextSnippet(text, idx, length, ctx = 20) {
+  const start = Math.max(0, idx - ctx)
+  const end = Math.min(text.length, idx + length + ctx)
+  return { snippet: text.slice(start, end), start: idx - start, end: idx - start + length }
+}
+
+// 对 title + 正文纯文本做大小写不敏感子串匹配（用于列表页与快速搜索面板）
+function runSearch(rawQuery) {
+  const q = (rawQuery || '').trim().toLowerCase()
+  if (!q) return []
+  const results = []
+  for (const note of store.readAllNotes()) {
+    const title = note.title || ''
+    const indexed = noteIndex.get(note.id)
+    const text = indexed ? indexed.text : htmlToText(note.html || '')
+    const matches = []
+    let count = 0
+    const tLow = title.toLowerCase()
+    const tIdx = tLow.indexOf(q)
+    if (tIdx !== -1) {
+      matches.push({ field: 'title', snippet: title, start: tIdx, end: tIdx + q.length })
+      count += countOccurrences(tLow, q)
+    }
+    const bLow = text.toLowerCase()
+    const bIdx = bLow.indexOf(q)
+    if (bIdx !== -1) {
+      const norm = contextSnippet(text, bIdx, q.length)
+      matches.push({ field: 'body', snippet: norm.snippet, start: norm.start, end: norm.end })
+      count += countOccurrences(bLow, q)
+    }
+    if (!matches.length) continue
+    results.push({
+      id: note.id,
+      title,
+      color: note.color || 'yellow',
+      updatedAt: note.updatedAt || 0,
+      count,
+      matches
+    })
+  }
+  // 排序：有标题命中者优先，其次按 updatedAt 降序
+  results.sort((a, b) => {
+    const at = a.matches.some((m) => m.field === 'title') ? 1 : 0
+    const bt = b.matches.some((m) => m.field === 'title') ? 1 : 0
+    if (at !== bt) return bt - at
+    return (b.updatedAt || 0) - (a.updatedAt || 0)
+  })
+  return results
 }
 
 // ---------- 系统托盘 ----------
@@ -395,6 +563,7 @@ function buildTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '显示便笺列表', click: () => showWindow(listWin) },
     { label: captureShortcut ? `速记条（${captureShortcut}）` : '速记条', click: () => toggleCapture() },
+    { label: findShortcut ? `快速搜索（${findShortcut}）` : '快速搜索', click: () => openQuickFind() },
     { label: '新建便笺', click: () => createNewNote() },
     { type: 'separator' },
     {
@@ -453,6 +622,7 @@ ipcMain.handle('note:read', (_e, id) => store.readNote(id))
 
 ipcMain.handle('note:save', (_e, id, payload) => {
   const saved = store.writeNote(id, payload)
+  noteIndex.invalidate(id)
   broadcastNotes(id)
   return saved
 })
@@ -461,6 +631,7 @@ ipcMain.handle('note:save', (_e, id, payload) => {
 ipcMain.on('note:save-sync', (e, id, payload) => {
   try {
     const saved = store.writeNote(id, payload)
+    noteIndex.invalidate(id)
     broadcastNotes(id)
     e.returnValue = !!saved
   } catch {
@@ -473,6 +644,7 @@ ipcMain.handle('note:create', () => createNewNote())
 // 删除 = 移入回收站（可在列表窗口恢复）
 ipcMain.handle('note:delete', (_e, id) => {
   store.moveToTrash(id)
+  noteIndex.invalidate(id)
   minimizedNotes.delete(id)
   const win = noteWins.get(id)
   if (win && !win.isDestroyed()) win.close()
@@ -488,6 +660,7 @@ ipcMain.handle('trash:list', () => store.listTrash())
 ipcMain.handle('trash:restore', (_e, id) => {
   const note = store.restoreNote(id)
   if (note) {
+    noteIndex.invalidate(id)
     broadcastNotes(id)
     buildTray()
   }
@@ -496,17 +669,29 @@ ipcMain.handle('trash:restore', (_e, id) => {
 
 ipcMain.handle('trash:purge', (_e, id) => {
   const ok = store.purgeNote(id)
+  noteIndex.invalidate(id)
   buildTray()
   return ok
 })
 
 ipcMain.handle('trash:empty', () => {
   const n = store.emptyTrash()
+  noteIndex.invalidateAll()
   buildTray()
   return n
 })
 
-ipcMain.on('window:open-note', (_e, id) => openNote(id))
+// 全文搜索：标题 + 正文纯文本子串匹配
+ipcMain.handle('search:query', (_e, q) => runSearch(q))
+
+// 快速搜索面板
+ipcMain.on('window:open-quickfind', () => openQuickFind())
+ipcMain.on('quickfind:close', () => closeQuickFind())
+
+ipcMain.on('window:open-note', (_e, id, query) => {
+  if (typeof query === 'string' && query.trim()) openNoteWithFind(id, query)
+  else openNote(id)
+})
 
 ipcMain.on('window:set-always-on-top', (e, flag) => {
   const win = BrowserWindow.fromWebContents(e.sender)
@@ -559,6 +744,7 @@ ipcMain.handle('capture:save', (_e, payload) => {
     createdAt: Date.now(),
     color: 'yellow'
   })
+  noteIndex.invalidate(id)
   broadcastNotes(id)
   if (payload && payload.open) {
     if (captureWin && !captureWin.isDestroyed()) captureWin.hide()
