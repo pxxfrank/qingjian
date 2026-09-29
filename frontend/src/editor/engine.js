@@ -63,13 +63,14 @@ function stripSentinels() {
   const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
   let n
   while ((n = walker.nextNode())) {
-    if (n.nodeValue && n.nodeValue.indexOf(EMPTY_SENTINEL) !== -1) {
-      n.nodeValue = n.nodeValue.split(EMPTY_SENTINEL).join('')
-    }
+    // 用 deleteData 逐个删：它会把同节点内的光标偏移一并左移；
+    // 直接赋 nodeValue 会按 DOM 规范把偏移 >0 的选区重置到 0（光标跳最左）。
+    let i
+    while ((i = n.nodeValue.indexOf(EMPTY_SENTINEL)) !== -1) n.deleteData(i, 1)
   }
   // 占位被清空后补回 <br>，维持空块的静态表示
   editor.querySelectorAll('p,li,h1,h2,h3,h4,h5,h6,blockquote,pre').forEach((el) => {
-    if (!el.textContent && !el.querySelector('br,img')) el.innerHTML = '<br>'
+    if (!el.textContent && !el.querySelector('br,img')) el.appendChild(document.createElement('br'))
   })
 }
 

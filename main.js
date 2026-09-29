@@ -198,6 +198,27 @@ function showWindow(win) {
   win.focus()
 }
 
+// ---------- 置顶（alwaysOnTop）稳定化 ----------
+// Windows 上置顶窗会被 show/restore/失焦、或被其它置顶窗激活后盖住，导致「钉住」时而不生效。
+// 对钉住的窗口持续重申 topmost（setAlwaysOnTop 不抢焦点）：窗口事件 + 轻量定时兜底。
+function stickOnTop(win) {
+  if (!win || win.isDestroyed() || win.__pinned === false) return
+  win.setAlwaysOnTop(true)
+}
+
+function attachStickyTop(win, intervalMs = 1500) {
+  win.__pinned = true
+  const reassert = () => stickOnTop(win)
+  win.on('show', reassert)
+  win.on('restore', reassert)
+  win.on('focus', reassert)
+  win.on('blur', reassert)
+  const timer = setInterval(() => {
+    if (!win.isDestroyed() && win.isVisible()) reassert()
+  }, intervalMs)
+  win.on('closed', () => clearInterval(timer))
+}
+
 // ---------- 速记条（全局热键唤起） ----------
 function createCaptureWindow() {
   captureWin = new BrowserWindow({
@@ -314,6 +335,7 @@ function createNoteWindow(id, bounds) {
   win.loadFile(path.join(__dirname, 'frontend', 'dist', 'note', 'index.html'), { query: { id } })
   win.__noteId = id
   win.__opaque = softRender
+  attachStickyTop(win) // 便笺默认置顶，且持续保证 topmost 生效
   win.once('ready-to-show', () => win.show())
   // 查找：把命中数/当前命中序号回传渲染层
   win.webContents.on('found-in-page', (_e, result) => {
@@ -491,7 +513,10 @@ ipcMain.handle('trash:empty', () => {
 ipcMain.on('window:open-note', (_e, id) => openNote(id))
 
 ipcMain.on('window:set-always-on-top', (e, flag) => {
-  BrowserWindow.fromWebContents(e.sender)?.setAlwaysOnTop(flag)
+  const win = BrowserWindow.fromWebContents(e.sender)
+  if (!win) return
+  win.__pinned = !!flag
+  win.setAlwaysOnTop(!!flag)
 })
 
 // 收起到贴边：直接隐藏窗口，并让小球播放「已收起」的涟漪反馈（不做缩小动画）
