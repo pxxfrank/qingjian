@@ -131,6 +131,30 @@ module.exports = {
     const savedHtml = (store.readNote('t-open') || {}).html || ''
     ok('flash class 不写入便笺内容', !savedHtml.includes('flash'), savedHtml)
 
+    console.log('\n[today] 返回便笺列表')
+    const back = await evalIn(listWin, `(async () => {
+      window.api.openToday()
+      await new Promise(r => setTimeout(r, 150))
+      const hasBtn = !!document.getElementById('backBtn')
+      if (hasBtn) document.getElementById('backBtn').click()
+      await new Promise(r => setTimeout(r, 150))
+      return { hasBtn, backToNotes: !!document.getElementById('noteGrid') && !document.getElementById('todayBoard') }
+    })()`)
+    ok('今日看板有「返回便笺列表」按钮且可回到主界面', back.hasBtn === true && back.backToNotes === true, JSON.stringify(back))
+
+    const backTrash = await evalIn(listWin, `(async () => {
+      document.getElementById('brandBtn').click()
+      await new Promise(r => setTimeout(r, 80))
+      ;[...document.querySelectorAll('.menu .menu-item')].find((b) => b.textContent.includes('回收站')).click()
+      await new Promise(r => setTimeout(r, 150))
+      const inTrash = !!document.getElementById('trashGrid')
+      const hasBtn = !!document.getElementById('backBtn')
+      if (hasBtn) document.getElementById('backBtn').click()
+      await new Promise(r => setTimeout(r, 150))
+      return { inTrash, hasBtn, backToNotes: !!document.getElementById('noteGrid') }
+    })()`)
+    ok('回收站有「返回便笺列表」按钮且可回到主界面', backTrash.inTrash === true && backTrash.hasBtn === true && backTrash.backToNotes === true, JSON.stringify(backTrash))
+
     noteWin.destroy()
     listWin.destroy()
   }

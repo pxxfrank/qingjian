@@ -40,6 +40,7 @@ const ICONS = {
   x: '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>',
   plus: '<path d="M5 12h14"></path><path d="M12 5v14"></path>',
   list: '<path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path>',
+  'arrow-left': '<path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path>',
   search: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.2-3.2"></path>',
   // 提醒（铃铛）
   alarm:
