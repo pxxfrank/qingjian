@@ -85,6 +85,47 @@ function caretAtEndOf(el) {
   return pre.toString().length >= (el.textContent || '').length
 }
 
+// 光标到块首之间的文本（用于判断「光标紧跟块级标记」并保留光标位置）
+function textBeforeCaretIn(el) {
+  const sel = getSelection()
+  if (!sel.rangeCount) return null
+  const range = sel.getRangeAt(0)
+  if (!range.collapsed) return null
+  const pre = document.createRange()
+  pre.selectNodeContents(el)
+  try { pre.setEnd(range.endContainer, range.endOffset) } catch { return null }
+  return pre.toString()
+}
+
+// 光标是否恰好在一行开头的块级标记之后（如刚打完 "1. " / "# " / "- "）。
+// 否则「已有文字的行首补打标记」时，光标不在行尾就不会触发转换。
+const BLOCK_MARKER_RE = /^(#{1,6}\s+|[-*+]\s+|\d+\.\s+|\[[ xX]?\]\s+|>\s+)$/
+function caretAfterBlockMarker(block) {
+  const before = textBeforeCaretIn(block)
+  return before != null && BLOCK_MARKER_RE.test(before)
+}
+
+// 把光标放到元素的第 offset 个字符处（跨文本节点），用于转换后保留原光标位置
+function placeCaretAtOffset(el, offset) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+  let seen = 0
+  let n
+  while ((n = walker.nextNode())) {
+    const len = n.nodeValue.length
+    if (offset <= seen + len) {
+      const range = document.createRange()
+      range.setStart(n, offset - seen)
+      range.collapse(true)
+      const sel = getSelection()
+      sel.removeAllRanges()
+      sel.addRange(range)
+      return
+    }
+    seen += len
+  }
+  placeCaretAtEnd(el)
+}
+
 function textNodeAtCaret() {
   const sel = getSelection()
   if (!sel.rangeCount) return null
@@ -215,9 +256,13 @@ function convertBlock(block) {
         placeCaretAtEnd(block)
         return true
       }
+      const content = m[m.length - 1] || '' // 各模式的内容都在最后一个捕获组
+      const markerLen = m[0].length - content.length
+      const before = textBeforeCaretIn(block)
       const el = p.make(m)
       block.replaceWith(el)
-      placeCaretAtEnd(el)
+      // 保留光标相对位置（行尾则落到末尾；行首补标记则停在原处）
+      placeCaretAtOffset(el, before == null ? content.length : Math.max(0, before.length - markerLen))
       return true
     }
   }
@@ -347,10 +392,15 @@ function processInput() {
   normalize()
   onInput()
   const block = currentBlock()
-  if (block && caretAtEndOf(block)) {
-    if (convertBlock(block)) { scheduleSave(); return }
-    const node = textNodeAtCaret()
-    if (node && convertInline(node)) { scheduleSave(); return }
+  if (block) {
+    const atEnd = caretAtEndOf(block)
+    // 行尾常规触发；或「已有文字的行首补打标记」也触发（列表项内除外，避免嵌套/清空）
+    const midLine = !atEnd && block.tagName !== 'LI' && caretAfterBlockMarker(block)
+    if ((atEnd || midLine) && convertBlock(block)) { scheduleSave(); return }
+    if (atEnd) {
+      const node = textNodeAtCaret()
+      if (node && convertInline(node)) { scheduleSave(); return }
+    }
   }
   scheduleSave()
 }

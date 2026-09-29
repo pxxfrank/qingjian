@@ -39,12 +39,32 @@ module.exports = {
       const p = ed.querySelector('p')
       p.textContent = '- item tail'
       const r = document.createRange()
-      r.setStart(p.firstChild, 2); r.collapse(true)
+      r.setStart(p.firstChild, 4); r.collapse(true)
       const s = getSelection(); s.removeAllRanges(); s.addRange(r)
       ed.dispatchEvent(new InputEvent('input', { bubbles: true }))
       return ed.innerHTML
     })()`)
-    ok('光标不在行尾不转换', mid === '<p>- item tail</p>', mid)
+    ok('光标在行中间（非行尾、非紧跟标记）不转换', mid === '<p>- item tail</p>', mid)
+
+    // 已有文字的行首补打标记（光标紧跟标记）也要转换
+    const markMid = await evalIn(win, `(() => {
+      const ed = document.getElementById('editor')
+      ed.innerHTML = '<p>hello</p>'
+      const tn = ed.querySelector('p').firstChild
+      const s = getSelection()
+      const r0 = document.createRange(); r0.setStart(tn, 0); r0.collapse(true); s.removeAllRanges(); s.addRange(r0)
+      const type = (ch) => {
+        const rr = s.getRangeAt(0)
+        const t = document.createTextNode(ch)
+        rr.insertNode(t)
+        const r2 = document.createRange(); r2.setStartAfter(t); r2.collapse(true)
+        s.removeAllRanges(); s.addRange(r2)
+        ed.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
+      }
+      ;['1', '.', ' '].forEach(type)
+      return ed.innerHTML
+    })()`)
+    ok('已有文字行首补打 "1. " → 有序列表', markMid === '<ol start="1"><li>hello</li></ol>', markMid)
 
     console.log('\n[engine] 列表交互')
     const enterHtml = await evalIn(win, `(() => {
