@@ -199,24 +199,20 @@ function showWindow(win) {
 }
 
 // ---------- 置顶（alwaysOnTop）稳定化 ----------
-// Windows 上置顶窗会被 show/restore/失焦、或被其它置顶窗激活后盖住，导致「钉住」时而不生效。
-// 对钉住的窗口持续重申 topmost（setAlwaysOnTop 不抢焦点）：窗口事件 + 轻量定时兜底。
+// 只做「掉了才补」：窗口 show/restore/focus 时若已不在置顶，再置顶一次。
+// 不做「持续/失焦重申」——反复 setAlwaysOnTop(true)（尤其多置顶窗之间）会改动 z 序，
+// 表现为两个置顶便笺互相顶、来回切换。
 function stickOnTop(win) {
   if (!win || win.isDestroyed() || win.__pinned === false) return
-  win.setAlwaysOnTop(true)
+  if (!win.isAlwaysOnTop()) win.setAlwaysOnTop(true)
 }
 
-function attachStickyTop(win, intervalMs = 1500) {
+function attachStickyTop(win) {
   win.__pinned = true
   const reassert = () => stickOnTop(win)
   win.on('show', reassert)
   win.on('restore', reassert)
   win.on('focus', reassert)
-  win.on('blur', reassert)
-  const timer = setInterval(() => {
-    if (!win.isDestroyed() && win.isVisible()) reassert()
-  }, intervalMs)
-  win.on('closed', () => clearInterval(timer))
 }
 
 // ---------- 速记条（全局热键唤起） ----------
