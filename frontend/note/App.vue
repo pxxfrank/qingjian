@@ -3,9 +3,11 @@
     <TitleBar
       :title="title"
       :pinned="pinned"
+      :remind="remindAt"
       @update:title="onTitle"
-      @toggle-color="showColor = !showColor"
+      @toggle-color="toggleColor"
       @find="openFind"
+      @remind="toggleRemind"
       @toggle-pin="togglePin"
       @hide-to-dock="hideToDock"
       @minimize="api.minimize()"
@@ -13,6 +15,7 @@
     />
     <FindBar v-if="showFind" @close="closeFind" />
     <ColorPicker v-if="showColor" @pick="pickColor" />
+    <RemindPicker v-if="showRemind" :note-id="noteId" @changed="loadRemind" />
     <EditorToolbar @cmd="onCmd" />
     <div class="editor-wrap">
       <main ref="editorEl" id="editor" contenteditable="true" spellcheck="false"></main>
@@ -31,6 +34,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import TitleBar from '../src/components/TitleBar.vue'
 import EditorToolbar from '../src/components/EditorToolbar.vue'
 import ColorPicker from '../src/components/ColorPicker.vue'
+import RemindPicker from '../src/components/RemindPicker.vue'
 import FindBar from '../src/components/FindBar.vue'
 import {
   initEngine, bindEditorEvents, normalize, focusEditorAtEnd,
@@ -45,6 +49,8 @@ const title = ref('')
 const pinned = ref(true)
 const showColor = ref(false)
 const showFind = ref(false)
+const showRemind = ref(false)
+const remindAt = ref(null) // 最近一个未完成提醒的 at（供标题栏高亮），无则 null
 
 let saveTimer = null
 let dirty = false
@@ -91,6 +97,29 @@ function flushSave() {
 function togglePin() {
   pinned.value = !pinned.value
   api.setAlwaysOnTop(pinned.value)
+}
+
+// 颜色 / 提醒弹层互斥，避免两个浮层叠在一起
+function toggleColor() {
+  showColor.value = !showColor.value
+  if (showColor.value) showRemind.value = false
+}
+
+function toggleRemind() {
+  showRemind.value = !showRemind.value
+  if (showRemind.value) showColor.value = false
+}
+
+// 刷新标题栏 ⏰ 高亮：取最早一个未完成提醒
+async function loadRemind() {
+  let arr = []
+  try { arr = await api.remindList(noteId) } catch { arr = [] }
+  let best = null
+  for (const r of (Array.isArray(arr) ? arr : [])) {
+    if (!r || r.done || typeof r.at !== 'number') continue
+    if (best === null || r.at < best) best = r.at
+  }
+  remindAt.value = best
 }
 
 function hideToDock() {
@@ -238,6 +267,7 @@ onMounted(async () => {
   else el.innerHTML = '<p><br></p>'
   if (data?.title) title.value = data.title
   if (data?.color) document.body.dataset.color = data.color
+  await loadRemind()
 
   // 主题
   const settings = await api.getSettings()
@@ -245,6 +275,7 @@ onMounted(async () => {
   applyTheme(themePref)
   api.onThemeChanged((t) => applyTheme(t))
   api.onSystemDark((dark) => { setSystemDark(dark); applyTheme(themePref) })
+  api.onRemindChanged(() => loadRemind()) // 提醒增删/触发后刷新 ⏰ 高亮
   api.onWindowReset(() => {}) // 收起动画已取消，仅保留通道兼容
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (themePref === 'system') applyTheme('system')

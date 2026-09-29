@@ -41,6 +41,10 @@ const ICONS = {
   plus: '<path d="M5 12h14"></path><path d="M12 5v14"></path>',
   list: '<path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path>',
   search: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.2-3.2"></path>',
+  // 提醒（铃铛）
+  alarm:
+    '<path d="M6 8a6 6 0 0 1 12 0c0 6.5 2.5 8.5 2.5 8.5h-17S6 14.5 6 8"></path>' +
+    '<path d="M10.3 20.5a2 2 0 0 0 3.4 0"></path>',
   'chevron-up': '<path d="m6 15 6-6 6 6"></path>',
   'chevron-down': '<path d="m6 9 6 6 6-6"></path>',
   trash:

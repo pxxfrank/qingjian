@@ -28,6 +28,17 @@ function initStore(tmpDir) {
   return store
 }
 
+// 便笺里最近一个未完成提醒的 at（与 main.js 的 notes:list 契约一致）
+function nearestRemind(note) {
+  const arr = note && Array.isArray(note.remind) ? note.remind : []
+  let best = null
+  for (const rem of arr) {
+    if (!rem || rem.done || typeof rem.at !== 'number') continue
+    if (best === null || rem.at < best) best = rem.at
+  }
+  return best
+}
+
 // 与 main.js 契约一致的全文搜索（供 search:query 桩使用）
 function countOccurrences(hay, needle) {
   if (!needle) return 0
@@ -77,7 +88,7 @@ function searchNotes(rawQuery) {
 function registerIpc() {
   ipcMain.handle('notes:list', () => store.listNotes().map((meta) => {
     const note = store.readNote(meta.id)
-    return { ...meta, title: note?.title || '', preview: note?.preview || '', pinned: !!note?.pinned, color: note?.color || 'yellow' }
+    return { ...meta, title: note?.title || '', preview: note?.preview || '', pinned: !!note?.pinned, color: note?.color || 'yellow', remind: nearestRemind(note) }
   }))
   ipcMain.handle('note:read', (_e, id) => store.readNote(id))
   ipcMain.handle('note:save', (_e, id, payload) => store.writeNote(id, payload))
@@ -119,6 +130,13 @@ function registerIpc() {
   ipcMain.on('find:stop', (e) => e.sender.send('find:result', { matches: 0, active: 0 }))
   // 全文搜索（与 main.js 契约一致）
   ipcMain.handle('search:query', (_e, q) => searchNotes(q))
+  // 提醒（与 main.js 契约一致）
+  ipcMain.handle('remind:list', (_e, id) => {
+    const note = store.readNote(id)
+    return note && Array.isArray(note.remind) ? note.remind : []
+  })
+  ipcMain.handle('remind:set', (_e, id, rem) => store.setReminder(id, rem))
+  ipcMain.handle('remind:remove', (_e, id, remId) => store.removeReminder(id, remId))
   // 记录最后一次「打开便笺」（含可选高亮 query），供搜索结果点击用例断言
   ipcMain.on('window:open-note', (_e, id, q) => { lastOpened = { id, q: typeof q === 'string' ? q : '' } })
   // 快速搜索面板（无窗口控制需求，空实现即可）

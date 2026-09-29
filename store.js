@@ -168,6 +168,45 @@ function createStore(notesDir, settingsFile, trashDir) {
     return n
   }
 
+  // ---------- 提醒（不写进正文 HTML，随便笺 JSON 一起持久化） ----------
+  // 展平全部便笺的 remind 数组 → [{ id（便笺 id）, rem }]
+  function listReminders() {
+    const out = []
+    for (const note of readAllNotes()) {
+      const arr = Array.isArray(note.remind) ? note.remind : []
+      for (const rem of arr) {
+        if (rem && rem.id) out.push({ id: note.id, rem })
+      }
+    }
+    return out
+  }
+
+  // 按 rem.id upsert 到该便笺的 remind 数组（浅合并，保留未提供的字段）
+  function setReminder(id, rem) {
+    if (!rem || !rem.id) return null
+    const note = readNote(id) || {}
+    const arr = Array.isArray(note.remind) ? note.remind.slice() : []
+    const i = arr.findIndex((r) => r && r.id === rem.id)
+    if (i === -1) arr.push(rem)
+    else arr[i] = { ...arr[i], ...rem }
+    return writeNote(id, { remind: arr })
+  }
+
+  function removeReminder(id, remId) {
+    const note = readNote(id)
+    if (!note || !Array.isArray(note.remind)) return false
+    const arr = note.remind.filter((r) => !(r && r.id === remId))
+    if (arr.length === note.remind.length) return false
+    writeNote(id, { remind: arr })
+    return true
+  }
+
+  function getReminder(id, remId) {
+    const note = readNote(id)
+    const arr = note && Array.isArray(note.remind) ? note.remind : []
+    return arr.find((r) => r && r.id === remId) || null
+  }
+
   function readSettings() {
     try {
       return JSON.parse(fs.readFileSync(settingsFile, 'utf8')) || {}
@@ -198,6 +237,10 @@ function createStore(notesDir, settingsFile, trashDir) {
     purgeNote,
     emptyTrash,
     pruneTrash,
+    listReminders,
+    setReminder,
+    removeReminder,
+    getReminder,
     readSettings,
     writeSettings
   }

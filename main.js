@@ -1,7 +1,7 @@
 // 主进程：窗口管理、贴边启动器、速记条、全局热键、IPC、便笺存储、系统托盘
 const {
   app, BrowserWindow, ipcMain, nativeTheme, dialog, Tray, Menu, nativeImage,
-  protocol, net, globalShortcut
+  protocol, net, globalShortcut, Notification, powerMonitor
 } = require('electron')
 const path = require('path')
 const fs = require('fs')
@@ -11,6 +11,7 @@ const { createStore } = require('./store')
 const { createLauncher } = require('./launcher')
 const { htmlToText } = require('./notes-parse')
 const { createNoteIndex } = require('./note-index')
+const { createReminderScheduler } = require('./reminder-scheduler')
 
 const NOTE_MIN_W = 380 // 便笺窗最小宽度：标题 ≥96px 且标题栏图标完整显示
 const LIST_MIN_W = 340 // 列表窗最小宽度：卡片标题保持横向单行
@@ -36,6 +37,9 @@ const store = createStore(
 )
 // 便笺派生缓存（正文纯文本 + 任务项）：全文搜索与后续「今日看板」共用
 const noteIndex = createNoteIndex(store)
+
+// 提醒调度：到点触发（notify 定义见下方 notifyReminder）
+const scheduler = createReminderScheduler({ store, notify: notifyReminder, openNote })
 
 // ---------- 渲染环境探测 ----------
 // 无 GPU（虚拟机 / 远程桌面）时 Electron 退化为纯软件渲染，透明置顶窗口要由 DWM
@@ -465,6 +469,56 @@ function broadcastNotes(id) {
   broadcastLauncherItems()
 }
 
+// ---------- 提醒 ----------
+const REMIND_REPEAT_LABEL = { once: '一次', daily: '每天', weekly: '每周', weekdays: '工作日' }
+
+// 便笺里最近一个「未完成」提醒的 at（供列表卡片显示 ⏰），无则 null
+function nearestRemind(note) {
+  const arr = note && Array.isArray(note.remind) ? note.remind : []
+  let best = null
+  for (const rem of arr) {
+    if (!rem || rem.done || typeof rem.at !== 'number') continue
+    if (best === null || rem.at < best) best = rem.at
+  }
+  return best
+}
+
+// 提醒变化推送：便笺窗刷新 ⏰ 按钮 / 提醒列表
+function broadcastRemindChanged(id) {
+  const win = noteWins.get(id)
+  if (win && !win.isDestroyed()) win.webContents.send('remind:changed')
+}
+
+function reminderText(rem, meta) {
+  const d = new Date(rem.at)
+  const p = (n) => String(n).padStart(2, '0')
+  const label = REMIND_REPEAT_LABEL[rem.repeat] || ''
+  let text = `${p(d.getHours())}:${p(d.getMinutes())}`
+  if (label) text += ` · ${label}`
+  if (meta && meta.overdue) text += '（已过期）'
+  return text
+}
+
+// 到点：刷新界面 + 唤出便笺（闪烁/置顶）+ 发系统通知（点击通知打开便笺）
+function notifyReminder(id, rem, meta) {
+  broadcastRemindChanged(id)
+  broadcastNotes(id) // 列表窗刷新 ⏰ 徽标
+  const win = noteWins.get(id)
+  if (win && !win.isDestroyed()) {
+    win.flashFrame(true) // 任务栏闪烁提示
+    if (!win.isAlwaysOnTop()) win.setAlwaysOnTop(true)
+    win.once('focus', () => { if (!win.isDestroyed()) win.flashFrame(false) })
+  }
+  if (!Notification.isSupported()) return
+  const note = store.readNote(id)
+  const n = new Notification({
+    title: (note && note.title) || '轻笺提醒',
+    body: reminderText(rem, meta)
+  })
+  n.on('click', () => openNote(id))
+  n.show()
+}
+
 // 打开便笺并在加载完成后高亮命中（快速搜索 / 列表搜索结果复用）
 function openNoteWithFind(id, query) {
   const existed = noteWins.get(id)
@@ -613,7 +667,8 @@ ipcMain.handle('notes:list', () => {
       title: note?.title || '',
       preview: note?.preview || '',
       pinned: !!note?.pinned,
-      color: note?.color || 'yellow'
+      color: note?.color || 'yellow',
+      remind: nearestRemind(note)
     }
   })
 })
@@ -652,6 +707,30 @@ ipcMain.handle('note:delete', (_e, id) => {
   refreshLauncher()
   buildTray()
   return true
+})
+
+// ---------- 提醒 ----------
+// 该便笺的全部提醒（供便笺窗提醒弹层渲染）
+ipcMain.handle('remind:list', (_e, id) => {
+  const note = store.readNote(id)
+  return note && Array.isArray(note.remind) ? note.remind : []
+})
+
+// upsert 提醒 → 重排定时器 + 通知便笺窗刷新 + 刷新列表窗 ⏰
+ipcMain.handle('remind:set', (_e, id, rem) => {
+  const saved = store.setReminder(id, rem)
+  scheduler.rescan()
+  broadcastRemindChanged(id)
+  broadcastNotes(id)
+  return saved
+})
+
+ipcMain.handle('remind:remove', (_e, id, remId) => {
+  const ok = store.removeReminder(id, remId)
+  scheduler.rescan()
+  broadcastRemindChanged(id)
+  broadcastNotes(id)
+  return ok
 })
 
 // ---------- 回收站 ----------
@@ -865,6 +944,8 @@ const initialTheme = store.readSettings().theme || 'system'
 nativeTheme.themeSource = initialTheme === 'dark' ? 'dark' : initialTheme === 'system' ? 'system' : 'light'
 
 app.whenReady().then(() => {
+  // Windows 通知依赖 AppUserModelID（与 package.json 的 build.appId 一致），须在建窗前设置
+  app.setAppUserModelId('com.qingjian.note')
   detectSoftwareRender()
   store.ensureNotesDir()
   store.pruneTrash() // 清理超过保留期的回收站内容
@@ -886,12 +967,17 @@ app.whenReady().then(() => {
   }
   // 窗口就绪后再广播一次，确保「跟随系统」拿到的是最新的系统深色状态
   setTimeout(broadcastSystemDark, 300)
+  // 提醒：启动调度（立即重排 + 心跳兜底），系统休眠/解锁后立即重排
+  scheduler.start()
+  powerMonitor.on('resume', () => scheduler.rescan())
+  powerMonitor.on('unlock-screen', () => scheduler.rescan())
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createListWindow()
   })
 })
 
 app.on('will-quit', () => {
+  scheduler.stop()
   globalShortcut.unregisterAll()
 })
 

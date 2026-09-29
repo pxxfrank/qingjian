@@ -11,6 +11,7 @@
     <div class="win-controls no-drag">
       <button class="ctrl md-state" title="便笺颜色" @click="$emit('toggle-color')"><Icon name="palette" /></button>
       <button class="ctrl md-state" title="查找（Ctrl+F）" @click="$emit('find')"><Icon name="search" /></button>
+      <button class="ctrl md-state" :class="{ on: !!remind }" :title="remindTitle" @click="$emit('remind')"><Icon name="alarm" /></button>
       <button class="ctrl md-state" data-act="dock" title="收起到贴边" @click="$emit('hide-to-dock')"><Icon name="collapse" /></button>
       <button class="ctrl md-state" :class="{ on: pinned }" title="切换悬浮置顶" @click="$emit('toggle-pin')"><Icon name="pin" /></button>
       <button class="ctrl md-state" title="最小化" @click="$emit('minimize')"><Icon name="minus" /></button>
@@ -20,13 +21,22 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import Icon from './Icon.vue'
 
-defineProps({ title: String, pinned: Boolean })
+const props = defineProps({ title: String, pinned: Boolean, remind: { type: Number, default: null } })
 const emit = defineEmits([
-  'update:title', 'toggle-color', 'find',
+  'update:title', 'toggle-color', 'find', 'remind',
   'toggle-pin', 'hide-to-dock', 'minimize', 'close'
 ])
+
+// 有提醒时按钮高亮，并把下一次触发时间放进 tooltip（窄窗不占正文宽度）
+const remindTitle = computed(() => {
+  if (!props.remind) return '设置提醒'
+  const d = new Date(props.remind)
+  const p = (n) => String(n).padStart(2, '0')
+  return `提醒：${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+})
 </script>
 
 <style scoped>
@@ -98,7 +108,7 @@ const emit = defineEmits([
 .ctrl.danger:hover { color: var(--md-error); }
 
 /* 窗口变窄时图标同步收拢（宽高一起变，保持正圆）：保证「图标不缺 + 标题不消失」。
-   最小宽度 380 时内容为 356：6×28 + 内边距 ≈ 188，标题仍有 96+。 */
+   最小宽度 380 时内容为 356：7×28 + 内边距 ≈ 208，标题仍有 96+。 */
 @media (max-width: 440px) {
   .titlebar { padding: 0 4px 0 12px; gap: 4px; }
   .win-controls { gap: 0; }

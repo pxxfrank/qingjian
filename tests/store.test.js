@@ -118,6 +118,31 @@ for (let i = 0; i < 20; i++) store.writeNote(aid, { title: 'w' + i })
 const leftovers = fs.readdirSync(path.join(tmp, 'notes')).filter((f) => f.includes('.tmp'))
 ok('原子写入无临时文件残留', leftovers.length === 0 && store.readNote(aid).title === 'w19')
 
+// 14. 提醒往返：listReminders / setReminder / removeReminder / getReminder
+console.log('\n[store] 提醒')
+const rid = 'remind-note'
+store.writeNote(rid, { title: '提醒便笺', html: '<p>x</p>' })
+store.setReminder(rid, { id: 'ra', at: 1000, repeat: 'once', anchorText: null, done: false, lastFired: null })
+store.setReminder(rid, { id: 'rb', at: 2000, repeat: 'daily', anchorText: null, done: false, lastFired: null })
+const remList = store.listReminders().filter((r) => r.id === rid)
+ok('listReminders 展平该便笺提醒', remList.length === 2 && remList.every((r) => r.id === rid))
+ok('listReminders 项含 { id(便笺), rem }', !!remList[0].rem && typeof remList[0].rem.at === 'number')
+
+// upsert：同 id 覆盖，不重复新增
+store.setReminder(rid, { id: 'ra', at: 1500, done: true })
+const ra = store.getReminder(rid, 'ra')
+ok('setReminder 按 rem.id upsert（合并保留其余字段）', ra.at === 1500 && ra.done === true && ra.repeat === 'once')
+ok('upsert 不重复新增', store.listReminders().filter((r) => r.id === rid).length === 2)
+
+// remove
+ok('removeReminder 删除命中', store.removeReminder(rid, 'ra') === true)
+ok('removeReminder 后不再列出', store.getReminder(rid, 'ra') === null && store.listReminders().filter((r) => r.id === rid).length === 1)
+ok('removeReminder 不存在 id 返回 false', store.removeReminder(rid, 'nope') === false)
+
+// 渲染层 payload() 不发 remind：writeNote 浅合并后提醒不被清空
+store.writeNote(rid, { title: '改标题', html: '<p>y</p>' })
+ok('writeNote 合并保留 remind', !!store.getReminder(rid, 'rb') && store.getReminder(rid, 'rb').at === 2000)
+
 console.log(`\n[store] ${pass} passed, ${fail} failed`)
 fs.rmSync(tmp, { recursive: true, force: true })
 process.exit(fail === 0 ? 0 : 1)

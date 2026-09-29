@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld('api', {
   openQuickFind: () => ipcRenderer.send('window:open-quickfind'),
   quickFindClose: () => ipcRenderer.send('quickfind:close'),
 
+  // 提醒 / 到期通知
+  remindList: (id) => ipcRenderer.invoke('remind:list', id),
+  remindSet: (id, rem) => ipcRenderer.invoke('remind:set', id, rem),
+  remindRemove: (id, remId) => ipcRenderer.invoke('remind:remove', id, remId),
+
   // 回收站
   listTrash: () => ipcRenderer.invoke('trash:list'),
   restoreTrash: (id) => ipcRenderer.invoke('trash:restore', id),
@@ -75,6 +80,7 @@ contextBridge.exposeInMainWorld('api', {
   onLauncherItems: (cb) => ipcRenderer.on('launcher:items', (_e, items) => cb(items)),
   onLauncherPulse: (cb) => ipcRenderer.on('launcher:pulse', (_e, pulse) => cb(pulse)),
   onFindResult: (cb) => ipcRenderer.on('find:result', (_e, res) => cb(res)),
+  onRemindChanged: (cb) => ipcRenderer.on('remind:changed', () => cb()),
   onCaptureReset: (cb) => ipcRenderer.on('capture:reset', () => cb()),
   onQuickFindReset: (cb) => ipcRenderer.on('quickfind:reset', () => cb()),
   onWindowReset: (cb) => ipcRenderer.on('window:reset', () => cb())

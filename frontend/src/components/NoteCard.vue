@@ -13,7 +13,10 @@
       </button>
     </div>
     <div class="preview">{{ note.preview || '' }}</div>
-    <div class="time">{{ timeAgo(note.updatedAt) }}</div>
+    <div class="meta">
+      <span class="time">{{ timeAgo(note.updatedAt) }}</span>
+      <span v-if="note.remind" class="remind-badge" :class="{ overdue: remindOverdue }">⏰ {{ remindText }}</span>
+    </div>
   </div>
 </template>
 
@@ -35,6 +38,15 @@ const tintStyle = computed(() => ({
 }))
 // 入场错落：前几张依次延迟，营造轻柔的瀑布感
 const stagger = `${Math.min(props.index * 45, 315)}ms`
+
+// 提醒徽标：显示「⏰ MM-DD HH:MM」，已逾期标红
+const remindText = computed(() => {
+  if (!props.note.remind) return ''
+  const d = new Date(props.note.remind)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+})
+const remindOverdue = computed(() => !!props.note.remind && props.note.remind < Date.now())
 
 function onDel() {
   if (!confirm.value) {
@@ -121,7 +133,20 @@ onUnmounted(() => clearTimeout(timer))
   min-height: 19px;
   margin: 2px 0 0 20px;
 }
-.time { font-size: 11px; color: var(--md-on-surface-variant); margin: 6px 0 0 20px; opacity: .75; }
+.meta { display: flex; align-items: center; gap: 8px; margin: 6px 0 0 20px; }
+.time { font-size: 11px; color: var(--md-on-surface-variant); opacity: .75; }
+/* 提醒徽标：⏰ MM-DD HH:MM（逾期标红） */
+.remind-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: var(--shape-full);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  font-variant-numeric: tabular-nums;
+}
+.remind-badge.overdue { background: var(--md-error-container); color: var(--md-on-error-container); }
 
 /* MD3 图标按钮（32dp）+ 二次确认变 tonal 按钮 */
 .del {
