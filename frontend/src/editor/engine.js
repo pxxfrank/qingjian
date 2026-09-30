@@ -46,16 +46,49 @@ function placeCaretAtEnd(el) {
 // 合成开始前把占位换成零宽字符（ZWSP），给合成一个现成的文本节点即可避免；合成结束后清除。
 const EMPTY_SENTINEL = '\u200B'
 
+// 把光标锚进某个文本节点内部末尾（这样合成会直接续写这个文本节点，而不是新建节点）
+function collapseCaretIntoTextNode(tn) {
+  const r = document.createRange()
+  r.setStart(tn, tn.nodeValue.length)
+  r.collapse(true)
+  const sel = getSelection()
+  sel.removeAllRanges()
+  sel.addRange(r)
+}
+
 function ensureCompositionHost() {
   if (!editor) return
   const sel = getSelection()
   if (!sel.rangeCount) return
-  let node = sel.getRangeAt(0).startContainer
-  node = node.nodeType === 1 ? node : node.parentElement
-  while (node && node !== editor && !BLOCK_TAGS.has(node.tagName)) node = node.parentElement
-  if (!node || node === editor || node.textContent.trim()) return
-  node.textContent = EMPTY_SENTINEL
-  placeCaretAtEnd(node)
+  const range = sel.getRangeAt(0)
+  // 光标已锚在文本节点内 → 合成有现成宿主，不做任何改动（否则会挪动合成中的文本）
+  if (range.startContainer.nodeType === 3) return
+
+  // 光标锚在元素边界（空块的 <br>、块首/块尾紧邻 <strong>/<img>/<br>、空编辑器…）时，
+  // Chromium 需要「新建文本节点」，这个 DOM 变动会打断合成 → 首字母被直接上屏成英文。
+  // 先自己放好一个 ZWSP 文本节点，并把光标锚进它内部。
+  let block = range.startContainer
+  if (block !== editor && block.nodeType !== 1) block = block.parentElement
+  while (block && block !== editor && !BLOCK_TAGS.has(block.tagName)) block = block.parentElement
+
+  // 空块（仅一个 <br> 等占位）：整体改写成单个 ZWSP，顺带避免 <br> 引起结构变动
+  if (block && block !== editor && !block.textContent.trim() && !block.querySelector('img')) {
+    block.textContent = EMPTY_SENTINEL
+    collapseCaretIntoTextNode(block.firstChild)
+    return
+  }
+
+  // 其余情况：在光标处插入一个 ZWSP 文本节点，光标锚进它内部
+  const at = document.createRange()
+  try {
+    at.setStart(range.startContainer, range.startOffset)
+  } catch {
+    return
+  }
+  at.collapse(true)
+  const tn = document.createTextNode(EMPTY_SENTINEL)
+  at.insertNode(tn)
+  collapseCaretIntoTextNode(tn)
 }
 
 function stripSentinels() {
